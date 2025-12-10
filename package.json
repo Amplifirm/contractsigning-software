@@ -26,6 +26,8 @@
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
     "framer-motion": "^12.7.4",
+    "gl-matrix": "^3.4.4",
+    "gsap": "^3.13.0",
     "katex": "^0.16.21",
     "lucide-react": "^0.473.0",
     "mathjax-react": "^2.0.1",

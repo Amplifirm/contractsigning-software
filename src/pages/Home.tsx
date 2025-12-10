@@ -1,780 +1,1838 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { Upload, FileText, Pen,  X, Check, RotateCcw, ChevronLeft, ChevronRight,  Send, Calendar, User, Building, Type, Link, Eye} from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
-export default function Bloomsberry() {
-  const [email, setEmail] = useState('');
-  const [submitted, setSubmitted] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [scrollY, setScrollY] = useState(0);
-  const [logoUrl, setLogoUrl] = useState('');
-  const [countdown, setCountdown] = useState({ months: 0, days: 0, hours: 0, minutes: 0, seconds: 0 });
+// Supabase Configuration
+const SUPABASE_URL = 'https://gaxzaskncmqbtpimzypw.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdheHphc2tuY21xYnRwaW16eXB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI3OTI2MjYsImV4cCI6MjA2ODM2ODYyNn0.D2tLT4edbdVT7Sdu_4gpS8sa-tsdFsXBmJPbGlUp0Yk';
+
+// Debug logging
+console.log('API Key length:', SUPABASE_ANON_KEY.length);
+console.log('API Key starts with:', SUPABASE_ANON_KEY.substring(0, 20));
+console.log('Is API key configured?', SUPABASE_ANON_KEY !== 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdheHphc2tuY21xYnRwaW16eXB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI3OTI2MjYsImV4cCI6MjA2ODM2ODYyNn0.D2tLT4edbdVT7Sdu_4gpS8sa-tsdFsXBmJPbGlUp0Yk');
+
+// Simple Supabase client using standard fetch
+class SupabaseClient {
+  private baseUrl: string;
+  private apiKey: string;
+
+  constructor(url: string, key: string) {
+    this.baseUrl = url;
+    this.apiKey = key;
+  }
+
+  private async request(method: string, path: string, body?: any) {
+    const response = await fetch(`${this.baseUrl}/rest/v1${path}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': this.apiKey,
+        'Authorization': `Bearer ${this.apiKey}`,
+        'Prefer': method === 'POST' ? 'return=representation' : method === 'PATCH' ? 'return=minimal' : ''
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+
+    if (!response.ok) {
+      throw new Error(`Supabase error: ${response.status} ${response.statusText}`);
+    }
+
+    // Handle empty responses
+    const text = await response.text();
+    if (!text) return null;
+    
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async upsert(table: string, data: any) {
+    const response = await fetch(`${this.baseUrl}/rest/v1/${table}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': this.apiKey,
+        'Authorization': `Bearer ${this.apiKey}`,
+        'Prefer': 'resolution=merge-duplicates,return=minimal'
+      },
+      body: JSON.stringify(data)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Upsert error: ${response.status} ${response.statusText}`);
+    }
+
+    return { success: true };
+  }
+
+  async select(table: string, query: string = '*') {
+    return this.request('GET', `/${table}?select=${query}`);
+  }
+
+  async insert(table: string, data: any) {
+    return this.request('POST', `/${table}`, data);
+  }
+
+  async update(table: string, data: any, filter: string) {
+    return this.request('PATCH', `/${table}?${filter}`, data);
+  }
+
+  async uploadFile(bucket: string, path: string, file: File) {
+    const response = await fetch(`${this.baseUrl}/storage/v1/object/${bucket}/${path}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.apiKey}`,
+        'apikey': this.apiKey,
+      },
+      body: file
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Upload error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    return response.json();
+  }
+
+  getPublicUrl(bucket: string, path: string) {
+    return `${this.baseUrl}/storage/v1/object/public/${bucket}/${path}`;
+  }
+}
+
+// Only create client if API key is configured
+const isApiKeyConfigured = SUPABASE_ANON_KEY.length > 50 && SUPABASE_ANON_KEY.startsWith('eyJ');
+console.log('Creating Supabase client...', { 
+  isApiKeyConfigured, 
+  hasApiKey: !!SUPABASE_ANON_KEY,
+  keyLength: SUPABASE_ANON_KEY.length,
+  startsCorrectly: SUPABASE_ANON_KEY.startsWith('eyJ')
+});
+
+const supabase = isApiKeyConfigured 
+  ? new SupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
+console.log('Supabase client created:', !!supabase);
+
+interface DocumentField {
+  id: string;
+  type: 'signature' | 'text' | 'date' | 'name' | 'company';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  page: number;
+  label: string;
+  required: boolean;
+  value?: string;
+  signatureData?: string;
+}
+
+interface Document {
+  id: string;
+  name: string;
+  fields: DocumentField[];
+  status: 'draft' | 'sent' | 'completed';
+  clientLink?: string;
+  pdfUrl?: string;
+  signedPdfUrl?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface SignatureModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (signature: string) => void;
+}
+
+interface TextInputModalProps {
+  isOpen: boolean;
+  field: DocumentField | null;
+  onClose: () => void;
+  onSave: (value: string) => void;
+}
+
+const SignatureModal: React.FC<SignatureModalProps> = ({ isOpen, onClose, onSave }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [hasDrawn, setHasDrawn] = useState(false);
+  const [mode, setMode] = useState<'draw' | 'type'>('draw');
+  
+  // Define cursive fonts FIRST
+  const cursiveFonts = [
+    { name: 'Dancing Script', value: '"Dancing Script", cursive' },
+    { name: 'Great Vibes', value: '"Great Vibes", cursive' },
+    { name: 'Allura', value: '"Allura", cursive' },
+    { name: 'Alex Brush', value: '"Alex Brush", cursive' },
+    { name: 'Satisfy', value: '"Satisfy", cursive' },
+    { name: 'Pacifico', value: '"Pacifico", cursive' }
+  ];
+  
+  // Typed signature state
+  const [text, setText] = useState('');
+  const [selectedFont, setSelectedFont] = useState(cursiveFonts[0]);
+
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    setIsDrawing(true);
+    ctx.beginPath();
+    ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+  };
+
+  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    setHasDrawn(true);
+  };
+
+  const stopDrawing = () => {
+    setIsDrawing(false);
+  };
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setHasDrawn(false);
+  };
+
+  const createTypedSignature = (text: string, fontFamily: string): string => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 100;
+    const ctx = canvas.getContext('2d');
+    
+    if (ctx) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = 'black';
+      ctx.font = `36px ${fontFamily}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+      return canvas.toDataURL('image/png');
+    }
+    return '';
+  };
+
+  const saveSignature = () => {
+    let signatureData = '';
+
+    if (mode === 'draw') {
+      const canvas = canvasRef.current;
+      if (!canvas || !hasDrawn) return;
+      signatureData = canvas.toDataURL('image/png');
+    } else {
+      if (!text.trim()) return;
+      signatureData = createTypedSignature(text, selectedFont.value);
+    }
+
+    onSave(signatureData);
+    setText('');
+    clearCanvas();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl p-6 w-[600px] shadow-2xl max-h-[80vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-xl font-semibold text-gray-800">Create Your Signature</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={24} />
+          </button>
+        </div>
+        
+        <div className="flex gap-4 mb-6">
+          <button
+            onClick={() => setMode('draw')}
+            className={`px-4 py-2 rounded-lg transition-colors ${
+              mode === 'draw' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            <Pen size={16} className="inline mr-2" />
+            Draw
+          </button>
+          <button
+            onClick={() => setMode('type')}
+            className={`px-4 py-2 rounded-lg transition-colors ${
+              mode === 'type' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            <Type size={16} className="inline mr-2" />
+            Type
+          </button>
+        </div>
+
+        {mode === 'draw' ? (
+          <>
+            <div className="mb-6">
+              <p className="text-sm text-gray-600 mb-3">Draw your signature in the box below:</p>
+              <canvas
+                ref={canvasRef}
+                width={552}
+                height={150}
+                className="border-2 border-gray-200 rounded-lg cursor-crosshair bg-gray-50 w-full"
+                onMouseDown={startDrawing}
+                onMouseMove={draw}
+                onMouseUp={stopDrawing}
+                onMouseLeave={stopDrawing}
+              />
+            </div>
+            
+            <div className="flex justify-between">
+              <button
+                onClick={clearCanvas}
+                className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+              >
+                <RotateCcw size={16} />
+                Clear
+              </button>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={onClose}
+                  className="px-6 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveSignature}
+                  disabled={!hasDrawn}
+                  className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+                >
+                  <Check size={16} />
+                  Save Signature
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Your Name</label>
+                <input
+                  type="text"
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder="Enter your name"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Font Style</label>
+                <select
+                  value={selectedFont.name}
+                  onChange={(e) => setSelectedFont(cursiveFonts.find(f => f.name === e.target.value) || cursiveFonts[0])}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {cursiveFonts.map((font) => (
+                    <option key={font.name} value={font.name}>{font.name}</option>
+                  ))}
+                </select>
+              </div>
+              
+              {text && (
+                <div className="border-2 border-gray-200 rounded-lg p-4 bg-gray-50">
+                  <div className="text-sm text-gray-600 mb-2">Preview:</div>
+                  <div 
+                    style={{ fontFamily: selectedFont.value }}
+                    className="text-3xl text-center text-gray-800"
+                  >
+                    {text}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex gap-3 justify-end mt-6">
+              <button
+                onClick={onClose}
+                className="px-6 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveSignature}
+                disabled={!text.trim()}
+                className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+              >
+                <Check size={16} />
+                Create Signature
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const TextInputModal: React.FC<TextInputModalProps> = ({ isOpen, field, onClose, onSave }) => {
+  const [value, setValue] = useState('');
 
   useEffect(() => {
-    const handleScroll = () => setScrollY(window.scrollY);
-    window.addEventListener('scroll', handleScroll);
-    console.log(scrollY);
-    
-    setLogoUrl('/bloomsberry (2).png');
-    
-    // Countdown to January 19th, 2026
-    const calculateCountdown = () => {
-      const now = new Date();
-      const target = new Date('2026-01-19T00:00:00');
-      const diff = target.getTime() - now.getTime();
+    if (field?.value) {
+      setValue(field.value);
+    } else {
+      setValue('');
+    }
+  }, [field]);
 
-      
-      if (diff <= 0) {
-        setCountdown({ months: 0, days: 0, hours: 0, minutes: 0, seconds: 0 });
-        return;
-      }
-      
-      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-      
-      const months = Math.floor(days / 30);
-      const remainingDays = days % 30;
-      
-      setCountdown({ months, days: remainingDays, hours, minutes, seconds });
+  const handleSave = () => {
+    onSave(value);
+    setValue('');
+  };
+
+  if (!isOpen || !field) return null;
+
+  const getPlaceholder = () => {
+    switch (field.type) {
+      case 'name': return 'Enter your full name';
+      case 'company': return 'Enter your company name';
+      case 'date': return 'MM/DD/YYYY';
+      case 'text': return 'Enter text';
+      default: return 'Enter value';
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl p-6 w-96 shadow-2xl">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-xl font-semibold text-gray-800">{field.label}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={24} />
+          </button>
+        </div>
+        
+        <div className="mb-6">
+          {field.type === 'date' ? (
+            <input
+              type="date"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          ) : (
+            <input
+              type="text"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder={getPlaceholder()}
+              className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          )}
+        </div>
+        
+        <div className="flex gap-3 justify-end">
+          <button
+            onClick={onClose}
+            className="px-6 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!value.trim()}
+            className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+          >
+            <Check size={16} />
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default function AmplifirmDocumentPlatform() {
+  const navigate = useNavigate();
+  
+  // Authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [loginError, setLoginError] = useState('');
+  
+  // App state
+  const [mode, setMode] = useState<'admin' | 'client'>('admin');
+  const [loading, setLoading] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(false);
+  const [error, setError] = useState<string>('');
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  
+  // Document state
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [currentDocument, setCurrentDocument] = useState<Document | null>(null);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+
+  console.log(documents);
+  
+  // PDF rendering
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+  const [pdfDoc, setPdfDoc] = useState<any>(null);
+  const [pageScale] = useState(1.5);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Field placement and manipulation
+  const [selectedFieldType, setSelectedFieldType] = useState<DocumentField['type'] | null>(null);
+  const [placingField, setPlacingField] = useState(false);
+  const [selectedField, setSelectedField] = useState<DocumentField | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [resizing, setResizing] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [fieldSettings, setFieldSettings] = useState({
+    fontSize: 12,
+    signatureSize: { width: 200, height: 60 },
+    textSize: { width: 200, height: 40 }
+  });
+  
+  // Modals
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const [showTextModal, setShowTextModal] = useState(false);
+  const [activeField, setActiveField] = useState<DocumentField | null>(null);
+
+  // Debounce utility function
+  function debounce(func: Function, wait: number) {
+    let timeout: NodeJS.Timeout;
+    return function executedFunction(...args: any[]) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
     };
-    
-    calculateCountdown();
-    const interval = setInterval(calculateCountdown, 1000);
-    
+  }
+
+  // Authentication
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (loginForm.username === 'a' && loginForm.password === 'a') {
+      setIsAuthenticated(true);
+      setLoginError('');
+      setLoginForm({ username: '', password: '' });
+    } else {
+      setLoginError('Invalid credentials. Please try again.');
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setCurrentDocument(null);
+    setMode('admin');
+  };
+
+  // Test Supabase connection
+  
+
+  // Save document to Supabase
+  const saveDocumentToDatabase = async (doc: Document, skipLocalUpdate = false) => {
+    if (!supabase) {
+      console.log('Supabase not configured, working in local mode');
+      if (!skipLocalUpdate) {
+        setDocuments(prev => [...prev.filter(d => d.id !== doc.id), doc]);
+      }
+      return;
+    }
+
+    try {
+      console.log('Saving document to Supabase:', doc.id);
+      
+      const docData = {
+        id: doc.id,
+        name: doc.name,
+        status: doc.status,
+        fields: JSON.stringify(doc.fields),
+        pdf_url: doc.pdfUrl || null,
+        signed_pdf_url: doc.signedPdfUrl || null,
+        client_link: doc.clientLink || null,
+        updated_at: new Date().toISOString()
+      };
+
+      console.log('Document data to save:', docData);
+      
+      // Use upsert for reliable save
+      await supabase.upsert('documents', docData);
+      console.log('Document saved successfully with upsert');
+      
+      if (!skipLocalUpdate) {
+        setDocuments(prev => [...prev.filter(d => d.id !== doc.id), doc]);
+      }
+    } catch (err) {
+      console.error('Error saving document:', err);
+      // Still update local state
+      if (!skipLocalUpdate) {
+        setDocuments(prev => [...prev.filter(d => d.id !== doc.id), doc]);
+      }
+    }
+  };
+
+  // Auto-save function with debouncing
+  const autoSaveDocument = useCallback(
+    debounce(async (doc: Document) => {
+      if (doc) {
+        console.log('Auto-saving document changes...');
+        setAutoSaving(true);
+        try {
+          await saveDocumentToDatabase(doc, true);
+          setLastSaved(new Date());
+          console.log('Auto-save completed');
+        } catch (err) {
+          console.error('Auto-save failed:', err);
+        } finally {
+          setAutoSaving(false);
+        }
+      }
+    }, 2000),
+    []
+  );
+
+  // Load document from Supabase
+  const loadDocumentFromDatabase = async (docId: string) => {
+    if (!supabase) {
+      console.log('Supabase not configured, cannot load document from database');
+      return null;
+    }
+
+    try {
+      setLoading(true);
+      console.log('Loading document from Supabase:', docId);
+      
+      const docs = await supabase.select('documents', '*');
+      console.log('Documents from database:', docs);
+      
+      const doc = docs.find((d: any) => d.id === docId);
+      
+      if (doc) {
+        console.log('Found document:', doc);
+        const loadedDoc: Document = {
+          id: doc.id,
+          name: doc.name,
+          status: doc.status,
+          fields: JSON.parse(doc.fields || '[]'),
+          pdfUrl: doc.pdf_url,
+          signedPdfUrl: doc.signed_pdf_url,
+          clientLink: doc.client_link
+        };
+        
+        setCurrentDocument(loadedDoc);
+        
+        // Load PDF from URL
+        if (doc.pdf_url) {
+          const response = await fetch(doc.pdf_url);
+          const arrayBuffer = await response.arrayBuffer();
+          
+          // @ts-ignore
+          const loadingTask = window.pdfjsLib.getDocument(arrayBuffer);
+          const pdf = await loadingTask.promise;
+          
+          setPdfDoc(pdf);
+          setTotalPages(pdf.numPages);
+          setCurrentPage(1);
+        }
+        
+        return loadedDoc;
+      } else {
+        console.log('Document not found in database');
+      }
+    } catch (err) {
+      console.error('Error loading document:', err);
+      setError('Failed to load document from database.');
+    } finally {
+      setLoading(false);
+    }
+    return null;
+  };
+
+  // Client Functions
+  const loadClientDocument = async (docId: string) => {
+    const doc = await loadDocumentFromDatabase(docId);
+    if (doc) {
+      setMode('client');
+    }
+  };
+
+  // Load PDF.js and PDF-lib
+  useEffect(() => {
+    // Load Google Fonts for cursive signatures
+    const link = document.createElement('link');
+    link.href = 'https://fonts.googleapis.com/css2?family=Dancing+Script:wght@400;600&family=Great+Vibes&family=Allura&family=Alex+Brush&family=Satisfy&family=Pacifico&display=swap';
+    link.rel = 'stylesheet';
+    document.head.appendChild(link);
+
+    // Load PDF.js
+    const pdfScript = document.createElement('script');
+    pdfScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    pdfScript.onload = () => {
+      // @ts-ignore
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    };
+    document.head.appendChild(pdfScript);
+
+    // Load PDF-lib for PDF manipulation
+    const pdfLibScript = document.createElement('script');
+    pdfLibScript.src = 'https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+    document.head.appendChild(pdfLibScript);
+
     return () => {
-      window.removeEventListener('scroll', handleScroll);
-      clearInterval(interval);
+      document.head.removeChild(pdfScript);
+      document.head.removeChild(pdfLibScript);
+      document.head.removeChild(link);
     };
   }, []);
 
-  const handleSubmit = async () => {
-    if (!email) return;
+  // Check for client mode in URL on mount
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const docId = urlParams.get('doc');
+    const urlMode = urlParams.get('mode');
     
-    setLoading(true);
-    setError('');
+    if (docId && urlMode === 'client') {
+      setMode('client');
+      setIsAuthenticated(true); // Auto-authenticate for client mode
+      loadClientDocument(docId);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Test Supabase connection on mount if configured
+    console.log('useEffect running - checking Supabase client...');
+    console.log('supabase exists:', !!supabase);
+    console.log('SUPABASE_URL:', SUPABASE_URL);
+    console.log('API key first 10 chars:', SUPABASE_ANON_KEY.substring(0, 10));
+    
+    if (supabase) {
+      console.log('✅ Supabase client initialized successfully');
+    } else {
+      console.log('❌ Supabase client not initialized - working in local mode');
+    }
+  }, []);
+
+  const renderPage = useCallback(async (pageNum: number) => {
+    if (!pdfDoc || !canvasRef.current) return;
+    
+    const page = await pdfDoc.getPage(pageNum);
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    
+    const viewport = page.getViewport({ scale: pageScale });
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    
+    const renderContext = {
+      canvasContext: ctx,
+      viewport: viewport,
+    };
+    
+    await page.render(renderContext).promise;
+  }, [pdfDoc, pageScale]);
+
+  useEffect(() => {
+    if (pdfDoc) {
+      renderPage(currentPage);
+    }
+  }, [pdfDoc, currentPage, renderPage]);
+
+  // Generate PDF with embedded signatures and form data
+  const generateSignedPDF = async (doc: Document): Promise<Uint8Array> => {
+    try {
+      // @ts-ignore
+      const { PDFDocument, rgb } = window.PDFLib;
+      
+      let pdfBytes: Uint8Array;
+      
+      if (doc.pdfUrl) {
+        // Load the original PDF from URL
+        const response = await fetch(doc.pdfUrl);
+        pdfBytes = new Uint8Array(await response.arrayBuffer());
+      } else if (pdfFile) {
+        // Use the local file
+        pdfBytes = new Uint8Array(await pdfFile.arrayBuffer());
+      } else {
+        throw new Error('No PDF source available');
+      }
+
+      const pdfDoc = await PDFDocument.load(pdfBytes);
+      const pages = pdfDoc.getPages();
+
+      // Process each field
+      for (const field of doc.fields) {
+        if (!field.value && !field.signatureData) continue;
+        
+        const page = pages[field.page - 1];
+        if (!page) continue;
+
+        const { height: pageHeight } = page.getSize();
+        
+        // Get the canvas element to calculate CSS scaling
+        const canvas = canvasRef.current;
+        if (!canvas) continue;
+        
+        // Canvas internal dimensions (set by PDF.js rendering)
+        const canvasInternalWidth = canvas.width;
+        const canvasInternalHeight = canvas.height;
+        
+        // Canvas display dimensions (may be different due to CSS scaling like max-w-full)
+        const canvasDisplayWidth = canvas.clientWidth || canvasInternalWidth;
+        const canvasDisplayHeight = canvas.clientHeight || canvasInternalHeight;
+        
+        // Calculate CSS scale factors
+        const cssScaleX = canvasInternalWidth / canvasDisplayWidth;
+        const cssScaleY = canvasInternalHeight / canvasDisplayHeight;
+        
+        // Convert: CSS display pixels -> Canvas internal pixels -> PDF points
+        // Step 1: Convert CSS pixels to canvas internal pixels
+        const canvasX = field.x * cssScaleX;
+        const canvasY = field.y * cssScaleY;
+        const canvasWidth = field.width * cssScaleX;
+        const canvasHeight = field.height * cssScaleY;
+        
+        // Step 2: Convert canvas pixels to PDF points (canvas is rendered at pageScale)
+        const scaleFactor = 1 / pageScale;
+        const scaledX = canvasX * scaleFactor;
+        const scaledY = canvasY * scaleFactor;
+        const scaledWidth = canvasWidth * scaleFactor;
+        const scaledHeight = canvasHeight * scaleFactor;
+        
+        // Step 3: Convert from top-left (HTML canvas) to bottom-left (PDF) coordinate system
+        const pdfX = scaledX;
+        const pdfY = pageHeight - scaledY - scaledHeight;
+
+        if (field.type === 'signature' && field.signatureData) {
+          try {
+            // Convert data URL to image bytes
+            const imageBytes = await fetch(field.signatureData).then(res => res.arrayBuffer());
+            const image = await pdfDoc.embedPng(new Uint8Array(imageBytes));
+            
+            page.drawImage(image, {
+              x: pdfX,
+              y: pdfY,
+              width: scaledWidth,
+              height: scaledHeight,
+            });
+          } catch (err) {
+            console.error('Error embedding signature:', err);
+          }
+        } else if (field.value) {
+          // Add text field - position text in center of field
+          const fontSize = Math.min(fieldSettings.fontSize, scaledHeight * 0.8);
+          page.drawText(field.value, {
+            x: pdfX + 5, // Small padding from left
+            y: pdfY + (scaledHeight / 2) - (fontSize / 2), // Center vertically
+            size: fontSize,
+            color: rgb(0, 0, 0),
+          });
+        }
+      }
+
+      return await pdfDoc.save();
+    } catch (err) {
+      console.error('Error generating signed PDF:', err);
+      throw err;
+    }
+  };
+
+  const downloadSignedDocument = async () => {
+    if (!currentDocument) return;
     
     try {
-      const response = await fetch('https://sheetdb.io/api/v1/u8ignr7ifh1is', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          data: {
-            email: email,
-            timestamp: new Date().toISOString()
-          }
-        })
-      });
+      setLoading(true);
+      console.log('Generating signed PDF...');
       
-      if (response.ok) {
-        setSubmitted(true);
-        setEmail('');
-        setTimeout(() => setSubmitted(false), 5000);
-      } else {
-        setError('Something went wrong. Please try again.');
+      // Generate PDF with embedded signatures
+      const signedPdfBytes = await generateSignedPDF(currentDocument);
+      
+      // Upload the signed PDF to Supabase storage
+      let signedPdfUrl = '';
+      if (supabase) {
+        try {
+          const signedFileName = `signed_${Date.now()}_${currentDocument.name}`;
+          const signedFile = new File([signedPdfBytes as BlobPart], signedFileName, { type: 'application/pdf' });
+          
+          await supabase.uploadFile('documents', signedFileName, signedFile);
+          signedPdfUrl = supabase.getPublicUrl('documents', signedFileName);
+          console.log('Signed PDF uploaded to:', signedPdfUrl);
+        } catch (uploadErr) {
+          console.error('Failed to upload signed PDF:', uploadErr);
+        }
       }
+      
+      // Mark document as completed and save
+      const completedDoc = {
+        ...currentDocument,
+        status: 'completed' as const,
+        signedPdfUrl
+      };
+      
+      await saveDocumentToDatabase(completedDoc);
+      setCurrentDocument(completedDoc);
+      
+      // Download the PDF
+      const blob = new Blob([signedPdfBytes as BlobPart], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `signed_${currentDocument.name}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      setError('✅ Document signed and downloaded successfully!');
+      
     } catch (err) {
-      setError('Failed to join waitlist. Please try again.');
+      console.error('Error downloading document:', err);
+      setError('Failed to generate signed PDF. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-[#fef6e4]">
-      <style>{`
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-15px); }
-        }
-        @keyframes slideInLeft {
-          from { transform: translateX(-50px); opacity: 0; }
-          to { transform: translateX(0); opacity: 1; }
-        }
-        @keyframes slideInRight {
-          from { transform: translateX(50px); opacity: 0; }
-          to { transform: translateX(0); opacity: 1; }
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes pulse {
-          0%, 100% { transform: scale(1); }
-          50% { transform: scale(1.05); }
-        }
-        .float { animation: float 3s ease-in-out infinite; }
-        .slide-in-left { animation: slideInLeft 0.6s ease-out; }
-        .slide-in-right { animation: slideInRight 0.6s ease-out; }
-        .fade-in { animation: fadeIn 0.8s ease-out; }
-        .pulse { animation: pulse 2s ease-in-out infinite; }
-      `}</style>
+  // Admin Functions
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && file.type === 'application/pdf') {
+      try {
+        setLoading(true);
+        setPdfFile(file);
 
-      {/* Header */}
-      <header className="border-b-4 border-black sticky top-0 bg-[#fef6e4] z-50">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 md:px-8 py-4 md:py-6">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2 sm:gap-3 slide-in-left">
-              {logoUrl ? (
-                <img 
-                src={logoUrl}
-                  alt="Bloomsberry Logo"
-                  className="h-10 sm:h-12 md:h-14 w-auto"
-                />
-              ) : (
-                <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 border-3 sm:border-4 border-black bg-[#ff6b6b] rounded-xl flex items-center justify-center transform -rotate-6 pulse">
-                  <span className="text-xl sm:text-2xl">🍓</span>
-                </div>
-              )}
-              <div>
-                <h1 className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight">BLOOMSBERRY</h1>
-                <p className="text-[10px] sm:text-xs font-bold tracking-wider text-[#ff6b6b]">LAUNCHING JAN 2026</p>
-              </div>
-            </div>
+        // Upload PDF to Supabase Storage
+        const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+        
+        if (supabase) {
+          try {
+            await supabase.uploadFile('documents', fileName, file);
+            const pdfUrl = supabase.getPublicUrl('documents', fileName);
             
-            <div className="hidden md:flex items-center gap-6">
-              <div className="inline-block border-3 border-black bg-[#ffe66d] px-4 py-2 transform -rotate-2 rounded-lg">
-                <span className="text-sm font-black">PRE-LAUNCH</span>
-              </div>
+            const arrayBuffer = await file.arrayBuffer();
+            
+            // @ts-ignore
+            const loadingTask = window.pdfjsLib.getDocument(arrayBuffer);
+            const pdf = await loadingTask.promise;
+            
+            setPdfDoc(pdf);
+            setTotalPages(pdf.numPages);
+            setCurrentPage(1);
+            
+            // Create new document
+            const newDoc: Document = {
+              id: Date.now().toString(),
+              name: file.name,
+              fields: [],
+              status: 'draft',
+              pdfUrl
+            };
+            
+            setCurrentDocument(newDoc);
+            return; // Success, exit early
+          } catch (uploadError) {
+            console.error('Upload failed, using local mode:', uploadError);
+            setError('Upload failed, working in local mode. Check your API key and bucket setup.');
+          }
+        }
+        
+        // Fallback: work with local file
+        const arrayBuffer = await file.arrayBuffer();
+        
+        // @ts-ignore
+        const loadingTask = window.pdfjsLib.getDocument(arrayBuffer);
+        const pdf = await loadingTask.promise;
+        
+        setPdfDoc(pdf);
+        setTotalPages(pdf.numPages);
+        setCurrentPage(1);
+        
+        // Create new document without PDF URL
+        const newDoc: Document = {
+          id: Date.now().toString(),
+          name: file.name,
+          fields: [],
+          status: 'draft'
+        };
+        
+        setCurrentDocument(newDoc);
+      } catch (err) {
+        console.error('Error uploading file:', err);
+        setError('Failed to upload PDF. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  const startPlacingField = (fieldType: DocumentField['type']) => {
+    setSelectedFieldType(fieldType);
+    setPlacingField(true);
+    setSelectedField(null);
+  };
+
+  const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!placingField || !selectedFieldType || !currentDocument) return;
+    
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    
+    const fieldLabels = {
+      signature: 'Signature',
+      name: 'Full Name',
+      company: 'Company Name',
+      date: 'Date',
+      text: 'Text Field'
+    };
+    
+    const fieldSizes = {
+      signature: fieldSettings.signatureSize,
+      name: fieldSettings.textSize,
+      company: fieldSettings.textSize,
+      date: { width: 150, height: fieldSettings.textSize.height },
+      text: fieldSettings.textSize
+    };
+    
+    const newField: DocumentField = {
+      id: Date.now().toString(),
+      type: selectedFieldType,
+      x,
+      y,
+      width: fieldSizes[selectedFieldType].width,
+      height: fieldSizes[selectedFieldType].height,
+      page: currentPage,
+      label: fieldLabels[selectedFieldType],
+      required: true,
+    };
+    
+    setCurrentDocument({
+      ...currentDocument,
+      fields: [...currentDocument.fields, newField]
+    });
+    
+    setPlacingField(false);
+    setSelectedFieldType(null);
+  };
+
+  // Field manipulation
+  const handleFieldMouseDown = (e: React.MouseEvent, field: DocumentField) => {
+    e.stopPropagation();
+    setSelectedField(field);
+    setDragStart({ x: e.clientX - field.x, y: e.clientY - field.y });
+    setDragging(true);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (dragging && selectedField && currentDocument) {
+      const newX = e.clientX - dragStart.x;
+      const newY = e.clientY - dragStart.y;
+      
+      const updatedFields = currentDocument.fields.map(field =>
+        field.id === selectedField.id
+          ? { ...field, x: Math.max(0, newX), y: Math.max(0, newY) }
+          : field
+      );
+      
+      setCurrentDocument({
+        ...currentDocument,
+        fields: updatedFields
+      });
+    }
+  };
+
+  const handleMouseUp = () => {
+    // Auto-save if fields were moved in admin mode
+    if ((dragging || resizing) && currentDocument && selectedField) {
+      autoSaveDocument(currentDocument);
+    }
+    
+    setDragging(false);
+    setResizing(false);
+  };
+
+  
+
+  const generateClientLink = async () => {
+    if (!currentDocument) return;
+    
+    try {
+      setLoading(true);
+      console.log('Generating client link for document:', currentDocument.id);
+      
+      const clientLink = `${window.location.origin}${window.location.pathname}?doc=${currentDocument.id}&mode=client`;
+      const updatedDoc = {
+        ...currentDocument,
+        status: 'sent' as const,
+        clientLink
+      };
+      
+      console.log('Updated document with client link:', updatedDoc);
+      await saveDocumentToDatabase(updatedDoc);
+      setCurrentDocument(updatedDoc);
+      
+      // Copy to clipboard
+      await navigator.clipboard.writeText(clientLink);
+      console.log('Client link copied to clipboard:', clientLink);
+      
+      // Clear any previous errors
+      setError('');
+    } catch (err) {
+      console.error('Error generating client link:', err);
+      setError('Failed to generate client link. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFieldInteraction = (field: DocumentField) => {
+    setActiveField(field);
+    if (field.type === 'signature') {
+      setShowSignatureModal(true);
+    } else {
+      setShowTextModal(true);
+    }
+  };
+
+  // Helper function to measure text dimensions using the actual canvas context
+  const measureTextDimensions = (text: string, fontSize: number = 12): { width: number; height: number } => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return { width: 200, height: 40 };
+    
+    // Use the same font that will be used in the PDF
+    ctx.font = `${fontSize}px Arial`;
+    const metrics = ctx.measureText(text);
+    const textWidth = metrics.width;
+    const textHeight = fontSize * 1.4; // Line height with padding
+    
+    // Add padding: 12px horizontal, 8px vertical
+    return {
+      width: Math.max(textWidth + 24, 120), // Minimum width of 120px
+      height: Math.max(textHeight + 16, 36) // Minimum height of 36px
+    };
+  };
+
+  const saveFieldValue = async (value: string) => {
+    if (!activeField || !currentDocument) return;
+    
+    // For text fields (not signatures), measure the text and adjust field size
+    // Keep the original position (x, y) - the field will grow from top-left
+    let updatedField = { ...activeField };
+    
+    if (activeField.type !== 'signature' && value) {
+      const textDimensions = measureTextDimensions(value, fieldSettings.fontSize);
+      // Keep the same x, y position - only update width and height
+      updatedField = {
+        ...updatedField,
+        width: textDimensions.width,
+        height: textDimensions.height
+      };
+    }
+    
+    const updatedFields = currentDocument.fields.map(field =>
+      field.id === activeField.id
+        ? { 
+            ...updatedField, 
+            value, 
+            signatureData: activeField.type === 'signature' ? value : undefined 
+          }
+        : field
+    );
+    
+    const updatedDoc = {
+      ...currentDocument,
+      fields: updatedFields
+    };
+    
+    setCurrentDocument(updatedDoc);
+    
+    // Auto-save to database
+    autoSaveDocument(updatedDoc);
+    
+    setShowSignatureModal(false);
+    setShowTextModal(false);
+    setActiveField(null);
+  };
+
+  const removeField = (fieldId: string) => {
+    if (!currentDocument) return;
+    
+    setCurrentDocument({
+      ...currentDocument,
+      fields: currentDocument.fields.filter(f => f.id !== fieldId)
+    });
+  };
+
+  const nextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+
+  const prevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+
+  const currentPageFields = currentDocument?.fields.filter(field => field.page === currentPage) || [];
+  const allRequiredFieldsCompleted = currentDocument?.fields.every(field => 
+    !field.required || (field.type === 'signature' ? field.signatureData : field.value)
+  ) || false;
+
+  const getFieldIcon = (type: DocumentField['type']) => {
+    switch (type) {
+      case 'signature': return <Pen size={16} />;
+      case 'name': return <User size={16} />;
+      case 'company': return <Building size={16} />;
+      case 'date': return <Calendar size={16} />;
+      case 'text': return <Type size={16} />;
+    }
+  };
+
+  // Login Screen
+  if (!isAuthenticated && mode === 'admin') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-slate-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-xl border border-gray-200 p-10 w-full max-w-md">
+          <div className="text-center mb-10">
+            <div className="w-20 h-20 bg-gradient-to-br from-slate-700 to-slate-900 rounded-xl flex items-center justify-center mx-auto mb-6 shadow-lg">
+              <FileText size={36} className="text-white" />
             </div>
+            <h1 className="text-3xl font-semibold text-slate-900 mb-2 tracking-tight">Amplifirm</h1>
+            <p className="text-slate-600 text-sm font-medium">Contract Management Platform</p>
           </div>
-        </div>
-      </header>
-
-      {/* Hero */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 md:px-8 py-12 sm:py-16 md:py-20 relative overflow-hidden">
-        <div className="absolute top-10 right-10 text-4xl sm:text-6xl float opacity-20">🍓</div>
-
-        <div className="grid md:grid-cols-2 gap-8 sm:gap-10 md:gap-12 items-center">
-          <div className="slide-in-left">
-            <div className="inline-block border-3 border-black bg-[#ff6b6b] px-4 sm:px-6 py-2 sm:py-3 mb-6 sm:mb-8 transform -rotate-2 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-xl">
-              <span className="text-sm sm:text-base md:text-lg font-black text-white">COMING TO GORDON SQUARE, UCL</span>
-            </div>
-            
-            <h2 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black leading-none mb-6 sm:mb-8">
-              CHOCOLATE<br/>
-              COVERED<br/>
-              <span className="text-[#ff6b6b]">STRAWBERRIES</span>
-            </h2>
-            
-            <div className="border-l-4 border-black pl-4 sm:pl-6 mb-6 sm:mb-8">
-              <p className="text-base sm:text-lg md:text-xl leading-relaxed mb-4">
-                We're eight UCL students launching a chocolate-covered strawberry business at Gordon Square 
-                in January 2026. Fresh strawberries from Covent Garden Market every morning, hand-dipped in 
-                Belgian chocolate, sold at fair prices.
-              </p>
-              <div className="border-3 border-black bg-[#ffe66d] p-3 sm:p-4 mb-4 rounded-lg">
-                <p className="text-base sm:text-lg font-black mb-2">🎉 LIMITED EARLY ACCESS</p>
-                <p className="text-sm sm:text-base font-bold">
-                  Only 500 waitlist spots available. First 100 signups get lifetime 20% discount on every order.
-                </p>
-              </div>
-              <p className="text-base sm:text-lg font-bold">
-                Join now to secure your spot and get 20% off your first order.
-              </p>
-            </div>
-
-            <div className="mb-6">
-              <div className="flex flex-col sm:flex-row gap-3">
-                <input 
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
-                  placeholder="your.email@ucl.ac.uk"
-                  className="flex-1 border-3 border-black px-4 sm:px-6 py-3 sm:py-4 font-bold text-base sm:text-lg focus:outline-none focus:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-xl"
-                  disabled={loading}
-                />
-                <button 
-                  onClick={handleSubmit}
-                  disabled={loading}
-                  className="border-3 border-black bg-black text-white px-6 sm:px-8 py-3 sm:py-4 font-black text-base sm:text-lg hover:bg-[#ff6b6b] hover:text-black transition-all rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? 'JOINING...' : 'JOIN WAITLIST'}
-                </button>
-              </div>
-              {submitted && (
-                <div className="border-3 border-black bg-[#ffe66d] px-4 py-3 mt-3 fade-in rounded-lg">
-                  <p className="font-bold text-xs sm:text-sm">✓ You're on the list! Check your email for confirmation.</p>
-                </div>
-              )}
-              {error && (
-                <div className="border-3 border-black bg-red-100 px-4 py-3 mt-3 rounded-lg">
-                  <p className="font-bold text-xs sm:text-sm text-red-700">{error}</p>
-                </div>
-              )}
-            </div>
-
-            <p className="text-xs sm:text-sm text-gray-600">
-              <strong>387 people</strong> have already joined • <strong>113 lifetime discount spots left</strong>
-            </p>
-          </div>
-
-          <div className="relative slide-in-right mt-8 md:mt-0">
-            <div className="border-4 border-black bg-white p-3 sm:p-4 transform rotate-2 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] hover:rotate-0 transition-transform rounded-xl">
-              <img 
-                src="https://images.unsplash.com/photo-1464454709131-ffd692591ee5?w=800" 
-                alt="Chocolate Strawberries"
-                className="w-full h-64 sm:h-80 md:h-96 object-cover rounded-lg"
+          
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Username</label>
+              <input
+                type="text"
+                value={loginForm.username}
+                onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-slate-900 placeholder-slate-400 transition-all"
+                placeholder="Enter username"
+                required
               />
             </div>
-            <div className="absolute -top-4 -right-4 border-3 border-black bg-[#ffe66d] px-4 sm:px-6 py-3 sm:py-4 transform rotate-6 shadow-lg pulse rounded-xl">
-              <p className="text-xs sm:text-sm font-black text-center">LAUNCHING<br/>JANUARY<br/>2026</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Countdown */}
-      <section className="border-y-4 border-black bg-[#ff6b6b] py-8 sm:py-10 md:py-12 fade-in">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 md:px-8">
-          <div className="text-center">
-            <p className="text-white font-black text-lg sm:text-xl md:text-2xl mb-3 sm:mb-4">LAUNCHING IN</p>
-            <div className="flex flex-wrap justify-center gap-2 sm:gap-3 md:gap-4">
-              {[
-                { value: countdown.months.toString().padStart(2, '0'), label: 'MONTHS' },
-                { value: countdown.days.toString().padStart(2, '0'), label: 'DAYS' },
-                { value: countdown.hours.toString().padStart(2, '0'), label: 'HOURS' },
-                { value: countdown.minutes.toString().padStart(2, '0'), label: 'MINS' },
-                { value: countdown.seconds.toString().padStart(2, '0'), label: 'SECS' }
-              ].map((item, i) => (
-                <div key={i} className="border-3 sm:border-4 border-black bg-white p-2 sm:p-3 md:p-4 min-w-[60px] sm:min-w-[70px] md:min-w-[90px] rounded-xl">
-                  <div className="text-2xl sm:text-3xl md:text-4xl font-black mb-1 sm:mb-2">{item.value}</div>
-                  <div className="text-[8px] sm:text-[10px] md:text-xs font-black">{item.label}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* What We're Building */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 md:px-8 py-12 sm:py-16 md:py-24">
-        <div className="mb-12 sm:mb-14 md:mb-16 slide-in-left">
-          <div className="flex items-center gap-4 sm:gap-6 mb-4">
-            <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black">WHAT WE'RE BUILDING</h2>
-            <div className="flex-1 border-t-4 border-black"></div>
-          </div>
-          <p className="text-base sm:text-lg md:text-xl max-w-2xl">
-            Not just another campus food stall. We're creating something students actually want.
-          </p>
-        </div>
-
-        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6 sm:gap-7 md:gap-8 mb-12 sm:mb-14 md:mb-16">
-          {[
-            {
-              title: "QUALITY FIRST",
-              desc: "Fresh strawberries from Covent Garden Market every morning at 6am. Belgian chocolate properly tempered. No shortcuts, no cheap ingredients. We're building this the right way from day one."
-            },
-            {
-              title: "FAIR PRICING",
-              desc: "£3 for small, £7.50 for large. We did the math - these prices give us healthy margins while being affordable for students. No inflated pricing, no hidden fees."
-            },
-            {
-              title: "CONSISTENT SCHEDULE",
-              desc: "Monday to Friday, 10am-4pm at Gordon Square. Same location, same hours, same quality. You'll know exactly when and where to find us."
-            }
-          ].map((item, i) => (
-            <div 
-              key={i} 
-              className="border-3 sm:border-4 border-black p-6 sm:p-7 md:p-8 bg-white hover:shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] transition-all slide-in-right rounded-xl"
-              style={{ animationDelay: `${i * 0.2}s` }}
-            >
-              <h3 className="text-xl sm:text-2xl font-black mb-3 sm:mb-4">{item.title}</h3>
-              <p className="text-sm sm:text-base leading-relaxed">{item.desc}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="border-3 sm:border-4 border-black p-6 sm:p-8 md:p-12 bg-[#ffe66d] transform -rotate-1 hover:rotate-0 transition-transform rounded-xl">
-          <h3 className="text-2xl sm:text-3xl md:text-4xl font-black mb-4 sm:mb-5 md:mb-6">OUR TARGET</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 md:gap-8">
-            {[
-              { number: "1,300+", label: "Cups per week by Month 3" },
-              { number: "£24K", label: "Monthly revenue target" },
-              { number: "8", label: "UCL students running this" },
-              { number: "100%", label: "Fresh every single day" }
-            ].map((stat, i) => (
-              <div key={i} className="text-center">
-                <div className="text-3xl sm:text-4xl md:text-5xl font-black mb-1 sm:mb-2">{stat.number}</div>
-                <div className="text-xs sm:text-sm font-bold">{stat.label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Lifetime Discount Callout */}
-        <div className="border-3 sm:border-4 border-black p-6 sm:p-8 md:p-12 bg-white mt-12 sm:mt-14 md:mt-16 rounded-xl">
-          <div className="text-center mb-6 sm:mb-7 md:mb-8">
-            <div className="inline-block border-3 border-black bg-[#ff6b6b] text-white px-6 sm:px-7 md:px-8 py-3 sm:py-3.5 md:py-4 rounded-xl mb-4 sm:mb-5 md:mb-6">
-              <p className="font-black text-lg sm:text-xl md:text-2xl">⚡ EARLY BIRD SPECIAL</p>
-            </div>
-            <h3 className="text-3xl sm:text-4xl md:text-5xl font-black mb-4 sm:mb-5 md:mb-6">LIFETIME DISCOUNT FOR FIRST 100</h3>
-          </div>
-          
-          <div className="grid md:grid-cols-2 gap-6 sm:gap-7 md:gap-8 max-w-4xl mx-auto">
-            <div className="border-3 sm:border-4 border-black p-6 sm:p-7 md:p-8 bg-[#ffe66d] rounded-xl">
-              <div className="text-4xl sm:text-5xl md:text-6xl mb-3 sm:mb-4 text-center">🏆</div>
-              <h4 className="text-xl sm:text-2xl font-black mb-3 sm:mb-4 text-center">FIRST 100 SIGNUPS</h4>
-              <p className="text-base sm:text-lg leading-relaxed mb-3 sm:mb-4">
-                Get <strong>20% off EVERY order, FOREVER.</strong> Not just your first order. 
-                Every single time you buy from us, for as long as we're in business.
-              </p>
-              <p className="text-xs sm:text-sm font-bold">
-                Small cup: £2.40 instead of £3.00<br/>
-                Large cup: £6.00 instead of £7.50
-              </p>
+            
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Password</label>
+              <input
+                type="password"
+                value={loginForm.password}
+                onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-slate-900 placeholder-slate-400 transition-all"
+                placeholder="Enter password"
+                required
+              />
             </div>
             
-            <div className="border-3 sm:border-4 border-black p-6 sm:p-7 md:p-8 bg-white rounded-xl">
-              <div className="text-4xl sm:text-5xl md:text-6xl mb-3 sm:mb-4 text-center">🎁</div>
-              <h4 className="text-xl sm:text-2xl font-black mb-3 sm:mb-4 text-center">SIGNUPS 101-500</h4>
-              <p className="text-base sm:text-lg leading-relaxed mb-3 sm:mb-4">
-                Get <strong>20% off your first order</strong> when we launch in January. 
-                Plus early access to our soft launch week.
-              </p>
-              <p className="text-xs sm:text-sm font-bold">
-                First order discount only, but you still get priority access before the general public.
-              </p>
-            </div>
-          </div>
-          
-          <div className="border-t-4 border-black mt-6 sm:mt-7 md:mt-8 pt-6 sm:pt-7 md:pt-8 text-center">
-            <p className="text-lg sm:text-xl font-black mb-3 sm:mb-4">
-              Why are we doing this? Because early supporters deserve to be rewarded properly.
-            </p>
-            <p className="text-base sm:text-lg">
-              If you believe in us before we even launch, you get the best deal possible. Simple as that.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Menu Preview */}
-      <section className="bg-white border-y-4 border-black py-12 sm:py-16 md:py-24">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 md:px-8">
-          <div className="mb-12 sm:mb-14 md:mb-16">
-            <div className="flex items-center gap-4 sm:gap-6 mb-4">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black">THE MENU</h2>
-              <div className="flex-1 border-t-4 border-black"></div>
-            </div>
-            <p className="text-base sm:text-lg md:text-xl max-w-2xl">
-              Two options, three chocolates. Simple is better.
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-6 sm:gap-7 md:gap-8">
-            <div className="border-3 sm:border-4 border-black p-6 sm:p-7 md:p-8 bg-[#fef6e4] hover:shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] transition-all rounded-xl">
-              <div className="flex justify-between items-start mb-4 sm:mb-5 md:mb-6">
-                <div>
-                  <div className="text-xs sm:text-sm font-black text-[#ff6b6b] mb-2">SMALL CUP</div>
-                  <h3 className="text-3xl sm:text-4xl md:text-5xl font-black mb-2">£3.00</h3>
-                  <p className="font-bold text-base sm:text-lg">Two strawberries</p>
-                </div>
-                <div className="text-4xl sm:text-5xl md:text-6xl float">🍓</div>
+            {loginError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm font-medium">
+                {loginError}
               </div>
-
-              <div className="border-t-2 border-black pt-4 sm:pt-5 md:pt-6 space-y-3 sm:space-y-4">
-                <p className="text-sm sm:text-base leading-relaxed">
-                  Perfect for a quick treat between lectures. Two large, fresh strawberries 
-                  hand-dipped in your choice of chocolate. Takes about 5 minutes to finish.
-                </p>
-                <div className="border-2 border-black p-3 sm:p-4 bg-white rounded-lg">
-                  <p className="text-xs sm:text-sm font-bold">
-                    <strong>January 2026 Launch:</strong> First 100 customers get small cups for £2.50
-                  </p>
-                  <p className="text-[10px] sm:text-xs mt-2 text-gray-600">
-                    Lifetime discount holders: £2.40 every time
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="border-3 sm:border-4 border-black p-6 sm:p-7 md:p-8 bg-[#ff6b6b] text-white hover:shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] transition-all rounded-xl">
-              <div className="flex justify-between items-start mb-4 sm:mb-5 md:mb-6">
-                <div>
-                  <div className="text-xs sm:text-sm font-black mb-2">LARGE CUP</div>
-                  <h3 className="text-3xl sm:text-4xl md:text-5xl font-black mb-2">£7.50</h3>
-                  <p className="font-bold text-base sm:text-lg">10-12 strawberries</p>
-                </div>
-                <div className="text-4xl sm:text-5xl md:text-6xl float" style={{ animationDelay: '0.5s' }}>🍓</div>
-              </div>
-
-              <div className="border-t-2 border-white pt-4 sm:pt-5 md:pt-6 space-y-3 sm:space-y-4">
-                <p className="text-sm sm:text-base leading-relaxed">
-                  Our expected bestseller. Ten to twelve large strawberries, perfect for sharing 
-                  or treating yourself. Mix different chocolates in the same cup.
-                </p>
-                <div className="border-2 border-white p-3 sm:p-4 bg-white text-black rounded-lg">
-                  <p className="text-xs sm:text-sm font-bold">
-                    <strong>January 2026 Launch:</strong> First 50 customers get large cups for £6.00
-                  </p>
-                  <p className="text-[10px] sm:text-xs mt-2 text-gray-600">
-                    Lifetime discount holders: £6.00 every time
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-3 sm:border-4 border-black p-6 sm:p-7 md:p-8 bg-[#ffe66d] mt-6 sm:mt-7 md:mt-8 rounded-xl">
-            <h3 className="text-2xl sm:text-3xl font-black mb-4 sm:mb-5 md:mb-6">CHOCOLATE OPTIONS</h3>
-            <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-5 md:gap-6">
-              {[
-                { name: "DARK", color: "#3d2817", desc: "70% Belgian cocoa. Rich and slightly bitter. Best for those who don't want too sweet." },
-                { name: "MILK", color: "#8b4513", desc: "Classic creamy milk chocolate. Sweet and smooth. Safe choice if buying for someone else." },
-                { name: "WHITE", color: "#f5f5dc", desc: "Pure white Belgian chocolate. Very sweet and buttery. Only for serious sweet tooths." }
-              ].map((choc, i) => (
-                <div key={i} className="slide-in-left" style={{ animationDelay: `${i * 0.2}s` }}>
-                  <div className="flex items-center gap-2 sm:gap-3 mb-2 sm:mb-3">
-                    <div className="w-10 h-10 sm:w-12 sm:h-12 border-2 border-black rounded-lg" style={{ backgroundColor: choc.color }}></div>
-                    <h4 className="text-lg sm:text-xl font-black">{choc.name}</h4>
-                  </div>
-                  <p className="text-xs sm:text-sm leading-relaxed">{choc.desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* The Team */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 md:px-8 py-12 sm:py-16 md:py-24">
-        <div className="mb-12 sm:mb-14 md:mb-16">
-          <div className="flex items-center gap-4 sm:gap-6 mb-4">
-            <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black">WHO WE ARE</h2>
-            <div className="flex-1 border-t-4 border-black"></div>
-          </div>
-          <p className="text-base sm:text-lg md:text-xl max-w-2xl">
-            Eight UCL students with zero food business experience. Here's why we're doing this anyway.
-          </p>
-        </div>
-
-        <div className="space-y-4 sm:space-y-5 md:space-y-6 text-base sm:text-lg leading-relaxed mb-10 sm:mb-11 md:mb-12">
-          <p className="slide-in-left">
-            We're not entrepreneurs. We're just students who got tired of overpriced, mediocre food on campus 
-            and decided to do something about it. We've been spending the last few months researching suppliers, 
-            calculating costs, testing recipes, and figuring out logistics.
-          </p>
-
-          <div className="border-3 sm:border-4 border-black p-6 sm:p-7 md:p-8 bg-white slide-in-right rounded-xl">
-            <p className="text-sm sm:text-base leading-relaxed">
-              Here's what we learned: chocolate-covered strawberries at fancy shops cost £15-20. 
-              But strawberries from wholesale markets are £3.50/kg. Belgian chocolate in bulk is affordable. 
-              With eight people splitting the work, we can make this profitable while charging fair prices.
-            </p>
-          </div>
-
-          <p className="slide-in-left text-sm sm:text-base">
-            Our plan is simple: wake up at 5:30am, get to Covent Garden Market by 6am, buy fresh strawberries, 
-            prep everything, and open at Gordon Square by 10am. Monday to Friday. We're aiming to sell 
-            1,300+ cups per week by month three.
-          </p>
-
-          <div className="border-3 sm:border-4 border-black p-6 sm:p-7 md:p-8 bg-[#ff6b6b] text-white slide-in-right rounded-xl">
-            <h3 className="text-xl sm:text-2xl font-black mb-3 sm:mb-4">OUR PROMISE</h3>
-            <ul className="space-y-2 sm:space-y-3">
-              <li className="flex items-start gap-2 sm:gap-3">
-                <span className="text-xl sm:text-2xl">✓</span>
-                <span className="text-sm sm:text-base">Fresh strawberries bought same morning, every single day</span>
-              </li>
-              <li className="flex items-start gap-2 sm:gap-3">
-                <span className="text-xl sm:text-2xl">✓</span>
-                <span className="text-sm sm:text-base">Belgian chocolate, properly tempered, no cheap alternatives</span>
-              </li>
-              <li className="flex items-start gap-2 sm:gap-3">
-                <span className="text-xl sm:text-2xl">✓</span>
-                <span className="text-sm sm:text-base">Fair pricing - £3 small, £7.50 large, no surge pricing</span>
-              </li>
-              <li className="flex items-start gap-2 sm:gap-3">
-                <span className="text-xl sm:text-2xl">✓</span>
-                <span className="text-sm sm:text-base">Consistent schedule - same times, same location, every weekday</span>
-              </li>
-            </ul>
-          </div>
-        </div>
-
-        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-5 md:gap-6">
-          {[
-            { role: "OPERATIONS", desc: "Sourcing strawberries, managing inventory, quality control" },
-            { role: "FINANCE", desc: "Tracking costs, managing cash, supplier relationships" },
-            { role: "PRODUCTION", desc: "Dipping strawberries, assembly, serving customers" }
-          ].map((role, i) => (
-            <div 
-              key={i} 
-              className="border-3 sm:border-4 border-black p-5 sm:p-6 bg-[#ffe66d] text-center hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] transition-all rounded-xl"
+            )}
+            
+            <button
+              type="submit"
+              className="w-full bg-slate-900 text-white py-3.5 rounded-lg hover:bg-slate-800 active:bg-slate-950 transition-all font-semibold shadow-md hover:shadow-lg"
             >
-              <h4 className="text-lg sm:text-xl font-black mb-2 sm:mb-3">{role.role}</h4>
-              <p className="text-xs sm:text-sm leading-relaxed">{role.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Launch Plan */}
-      <section className="bg-white border-y-4 border-black py-12 sm:py-16 md:py-24">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 md:px-8">
-          <div className="mb-12 sm:mb-14 md:mb-16">
-            <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black mb-3 sm:mb-4">LAUNCH ROADMAP</h2>
-            <p className="text-base sm:text-lg md:text-xl">Here's exactly how we're getting to January 2026.</p>
-          </div>
-
-          <div className="space-y-6 sm:space-y-7 md:space-y-8">
-            {[
-              {
-                month: "NOVEMBER 2025",
-                status: "IN PROGRESS",
-                color: "#ff6b6b",
-                items: [
-                  "Finalize supplier contracts with Covent Garden vendors",
-                  "Complete food hygiene Level 2 certifications for all team members",
-                  "Design packaging, branding, and stall setup",
-                  "Test chocolate tempering and dipping techniques"
-                ]
-              },
-              {
-                month: "DECEMBER 2025",
-                status: "NEXT",
-                color: "#ffe66d",
-                items: [
-                  "Secure pitch permit at Gordon Square",
-                  "Purchase equipment (tempering machine, display fridge, packaging)",
-                  "Run test batches and get feedback from friends",
-                  "Finalize menu and pricing"
-                ]
-              },
-              {
-                month: "JANUARY 2026",
-                status: "LAUNCH",
-                color: "#4ecdc4",
-                items: [
-                  "Soft launch: Week 1 - Limited hours, testing operations",
-                  "Week 2: Full schedule 10am-4pm Monday-Friday",
-                  "Week 3-4: Scale up production based on demand",
-                  "Month-end: Review and optimize"
-                ]
-              }
-            ].map((phase, i) => (
-              <div 
-                key={i} 
-                className="border-3 sm:border-4 border-black p-6 sm:p-7 md:p-8 hover:shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] transition-all fade-in rounded-xl"
-                style={{ animationDelay: `${i * 0.3}s` }}
-              >
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 mb-4 sm:mb-5 md:mb-6">
-                  <div 
-                    className="border-3 border-black px-4 sm:px-5 md:px-6 py-2 sm:py-2.5 md:py-3 font-black text-base sm:text-lg rounded-lg"
-                    style={{ backgroundColor: phase.color }}
-                  >
-                    {phase.month}
-                  </div>
-                  <div className="text-xs sm:text-sm font-black">{phase.status}</div>
-                </div>
-                <ul className="space-y-2 sm:space-y-3">
-                  {phase.items.map((item, j) => (
-                    <li key={j} className="flex items-start gap-2 sm:gap-3">
-                      <span className="text-lg sm:text-xl">→</span>
-                      <span className="text-sm sm:text-base leading-relaxed">{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Location Preview */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 md:px-8 py-12 sm:py-16 md:py-24">
-        <div className="mb-12 sm:mb-14 md:mb-16">
-          <div className="flex items-center gap-4 sm:gap-6 mb-4">
-            <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black">WHERE TO FIND US</h2>
-            <div className="flex-1 border-t-4 border-black"></div>
-          </div>
-          <p className="text-base sm:text-lg md:text-xl max-w-2xl">
-            Gordon Square, UCL Campus. Right by the church, next to the other food stalls.
-          </p>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-6 sm:gap-7 md:gap-8">
-          <div className="border-3 sm:border-4 border-black p-6 sm:p-7 md:p-8 bg-white rounded-xl">
-            <h3 className="text-xl sm:text-2xl font-black mb-4 sm:mb-5 md:mb-6">LOCATION DETAILS</h3>
-            <div className="space-y-3 sm:space-y-4">
-              <div>
-                <p className="font-black mb-2 text-sm sm:text-base">ADDRESS</p>
-                <p className="text-sm sm:text-base leading-relaxed">
-                  Gordon Square<br/>
-                  By the church, next to food stalls<br/>
-                  UCL Campus<br/>
-                  London WC1H 0AG
-                </p>
-              </div>
-              <div className="border-t-2 border-black pt-3 sm:pt-4">
-                <p className="font-black mb-2 text-sm sm:text-base">GETTING HERE</p>
-                <p className="text-xs sm:text-sm leading-relaxed">
-                  <strong>Tube:</strong> Euston Square (5 min), Warren Street (7 min), Goodge Street (8 min)<br/>
-                  <strong>Bus:</strong> Routes 10, 73, 134, 390<br/>
-                  <strong>Look for:</strong> The stall with the strawberry sign
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-3 sm:border-4 border-black p-6 sm:p-7 md:p-8 bg-[#ffe66d] rounded-xl">
-            <h3 className="text-xl sm:text-2xl font-black mb-4 sm:mb-5 md:mb-6">OPENING HOURS</h3>
-            <div className="space-y-2 sm:space-y-3">
-              {[
-                "MONDAY: 10:00 - 13:00",
-                "TUESDAY: 10:00 - 13:00",
-                "WEDNESDAY: 10:00 - 16:00",
-                "THURSDAY: 10:00 - 16:00",
-                "FRIDAY: 11:00 - 16:00"
-              ].map((day, i) => (
-                <div key={i} className="border-2 border-black p-3 sm:p-4 bg-white font-black text-sm sm:text-base rounded-lg">
-                  {day}
-                </div>
-              ))}
-              <div className="border-2 border-black p-3 sm:p-4 bg-black text-white font-black text-sm sm:text-base rounded-lg">
-                SATURDAY-SUNDAY: CLOSED
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Final CTA */}
-      <section id="final-cta" className="bg-[#ff6b6b] border-y-4 border-black py-12 sm:py-16 md:py-24">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 md:px-8 text-center text-white">
-          <div className="inline-block border-3 sm:border-4 border-black bg-[#ffe66d] text-black px-6 sm:px-7 md:px-8 py-3 sm:py-3.5 md:py-4 mb-6 sm:mb-7 md:mb-8 rounded-xl transform -rotate-2">
-            <p className="font-black text-base sm:text-lg md:text-xl">⚡ ONLY 500 SPOTS AVAILABLE</p>
-          </div>
-          
-          <h2 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black mb-4 sm:mb-5 md:mb-6">JOIN THE WAITLIST</h2>
-          
-          <div className="border-3 sm:border-4 border-white bg-white text-black p-6 sm:p-7 md:p-8 mb-6 sm:mb-7 md:mb-8 rounded-xl">
-            <p className="text-xl sm:text-2xl md:text-3xl font-black mb-3 sm:mb-4">SPECIAL EARLY BIRD OFFER</p>
-            <p className="text-base sm:text-lg md:text-xl mb-3 sm:mb-4">
-              <strong>First 100 signups:</strong> Lifetime 20% discount on EVERY order forever
-            </p>
-            <p className="text-sm sm:text-base md:text-lg">
-              <strong>Signups 101-500:</strong> 20% off your first order
-            </p>
-          </div>
-          
-          <p className="text-base sm:text-lg md:text-xl mb-8 sm:mb-10 md:mb-12">
-            Plus early access to our soft launch in January 2026 and exclusive updates on our progress
-          </p>
-
-          <div className="max-w-2xl mx-auto mb-6 sm:mb-7 md:mb-8">
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-              <input 
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
-                placeholder="your.email@ucl.ac.uk"
-                className="flex-1 border-3 sm:border-4 border-black px-6 sm:px-7 md:px-8 py-4 sm:py-5 md:py-6 font-bold text-base sm:text-lg md:text-xl text-black focus:outline-none rounded-xl"
-                disabled={loading}
-              />
-              <button 
-                onClick={handleSubmit}
-                disabled={loading}
-                className="border-3 sm:border-4 border-black bg-black text-white px-8 sm:px-10 md:px-12 py-4 sm:py-5 md:py-6 font-black text-base sm:text-lg md:text-xl hover:bg-white hover:text-black transition-all rounded-xl disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-              >
-                {loading ? 'JOINING...' : 'SIGN UP'}
-              </button>
-            </div>
-            {submitted && (
-              <div className="border-3 sm:border-4 border-black bg-[#ffe66d] px-4 sm:px-5 md:px-6 py-3 sm:py-3.5 md:py-4 mt-3 sm:mt-4 fade-in rounded-lg">
-                <p className="font-black text-black text-base sm:text-lg">✓ YOU'RE IN! Check your email for confirmation.</p>
-              </div>
-            )}
-            {error && (
-              <div className="border-3 sm:border-4 border-black bg-red-100 px-4 sm:px-5 md:px-6 py-3 sm:py-3.5 md:py-4 mt-3 sm:mt-4 rounded-lg">
-                <p className="font-black text-red-700 text-base sm:text-lg">{error}</p>
-              </div>
-            )}
-          </div>
-
-          <div className="border-t-4 border-white pt-6 sm:pt-7 md:pt-8">
-            <p className="text-base sm:text-lg md:text-xl font-bold">387 students on the waitlist • 113 lifetime discount spots remaining</p>
-          </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="border-t-4 border-black bg-[#fef6e4] py-12 sm:py-14 md:py-16">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 md:px-8">
-          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-8 sm:gap-10 md:gap-12 mb-10 sm:mb-11 md:mb-12">
-            <div>
-              <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
-                {logoUrl ? (
-                  <img 
-                    src={logoUrl}
-                    alt="Bloomsberry Logo"
-                    className="h-10 sm:h-12 md:h-14 w-auto"
-                  />
-                ) : (
-                  <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 border-3 sm:border-4 border-black bg-[#ff6b6b] rounded-xl flex items-center justify-center pulse">
-                    <span className="text-xl sm:text-2xl">🍓</span>
-                  </div>
-                )}
-                <span className="text-xl sm:text-2xl font-black">BLOOMSBERRY</span>
-              </div>
-              <p className="text-xs sm:text-sm leading-relaxed mb-3 sm:mb-4">
-                Fresh chocolate-covered strawberries launching January 2026 at Gordon Square, UCL.
-              </p>
-              <p className="text-[10px] sm:text-xs font-bold">
-                Made by Eight UCL students who care about quality.
-              </p>
-            </div>
-
-            <div>
-              <h4 className="font-black mb-3 sm:mb-4 text-sm sm:text-base">LAUNCHING</h4>
-              <p className="text-xs sm:text-sm mb-3 sm:mb-4">
-                January 2026<br/>
-                Gordon Square, UCL<br/>
-                London WC1H 0AG
-              </p>
-              <p className="text-xs sm:text-sm">
-                Instagram: @bloomsberry.ucl<br/>
-                Email: hello@bloomsberry.co.uk
-              </p>
-            </div>
-
-            <div>
-              <h4 className="font-black mb-3 sm:mb-4 text-sm sm:text-base">QUICK LINKS</h4>
-              <div className="space-y-1.5 sm:space-y-2 text-xs sm:text-sm">
-                <a href="#" className="block hover:text-[#ff6b6b]">Join Waitlist</a>
-                <a href="#" className="block hover:text-[#ff6b6b]">Menu Preview</a>
-                <a href="#" className="block hover:text-[#ff6b6b]">About Us</a>
-                <a href="#" className="block hover:text-[#ff6b6b]">Location</a>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-t-2 border-black pt-6 sm:pt-7 md:pt-8 flex flex-col sm:flex-row justify-between items-center gap-3 sm:gap-4">
-            <p className="text-xs sm:text-sm font-black">© 2025 BLOOMSBERRY</p>
-            <p className="text-[10px] sm:text-xs">Launching January 2026 • Gordon Square, UCL</p>
-          </div>
-        </div>
-      </footer>
-
-      {/* Floating CTA */}
-      <div className="fixed bottom-4 sm:bottom-6 md:bottom-8 right-4 sm:right-6 md:right-8 z-40">
-        <div className="relative pulse">
-          <div className="absolute -top-2 sm:-top-3 -right-2 sm:-right-3 bg-[#ff6b6b] border-2 border-black rounded-full w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center text-[10px] sm:text-xs font-black text-white">
-            113
-          </div>
-          <button 
-            onClick={() => document.querySelector('#final-cta')?.scrollIntoView({ behavior: 'smooth' })}
-            className="border-3 sm:border-4 border-black bg-[#ffe66d] px-4 sm:px-6 md:px-8 py-2.5 sm:py-3 md:py-4 font-black text-sm sm:text-base shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] sm:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-1 hover:translate-y-1 transition-all rounded-xl"
-          >
-            JOIN WAITLIST
-          </button>
+              Sign In
+            </button>
+          </form>
         </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-slate-100"
+         onMouseMove={handleMouseMove}
+         onMouseUp={handleMouseUp}>
+      <div className="max-w-7xl mx-auto p-6">
+        {/* Error Display */}
+        {error && (
+          <div className={`mb-6 p-4 rounded-lg border font-medium ${
+            error.startsWith('✅') 
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+              : 'bg-red-50 text-red-800 border-red-200'
+          }`}>
+            {error}
+          </div>
+        )}
+
+        {/* Header */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6 p-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-3xl font-semibold text-slate-900 mb-2 tracking-tight">
+                {mode === 'admin' ? 'Document Center' : 'Document Signing'}
+              </h1>
+              <p className="text-slate-600 text-sm font-medium">
+                {mode === 'admin' 
+                  ? 'Manage contracts and e-signatures' 
+                  : 'Review and sign the document below'
+                }
+              </p>
+            </div>
+            
+            <div className="flex items-center gap-4">
+              {autoSaving && (
+                <div className="bg-amber-50 text-amber-700 px-3 py-2 rounded-lg text-xs font-medium border border-amber-200">
+                  Auto-saving...
+                </div>
+              )}
+              
+              {lastSaved && !autoSaving && mode === 'client' && (
+                <div className="bg-emerald-50 text-emerald-700 px-3 py-2 rounded-lg text-xs font-medium border border-emerald-200">
+                  Saved {lastSaved.toLocaleTimeString()}
+                </div>
+              )}
+              
+              {mode === 'admin' && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => navigate('/internal-signing')}
+                    className="flex items-center gap-2 px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg transition-colors border border-slate-300 text-sm font-medium"
+                  >
+                    <Building size={16} />
+                    Internal Prep
+                  </button>
+                  <button
+                    onClick={() => setMode('client')}
+                    className="flex items-center gap-2 px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg transition-colors border border-slate-300 text-sm font-medium"
+                  >
+                    <Eye size={16} />
+                    Preview
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors text-sm font-medium"
+                  >
+                    <X size={16} />
+                    Logout
+                  </button>
+                </div>
+              )}
+              
+              {mode === 'client' && (
+                <div className="text-right">
+                  <div className="text-xs text-slate-500 font-medium mb-1">Status</div>
+                  <div className="text-base font-semibold text-slate-900">
+                    {currentDocument?.status === 'completed' 
+                      ? 'Completed' 
+                      : allRequiredFieldsCompleted 
+                        ? 'Ready to Submit' 
+                        : 'Pending'
+                    }
+                  </div>
+                  {currentDocument?.signedPdfUrl && (
+                    <a
+                      href={currentDocument.signedPdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-emerald-700 hover:text-emerald-900 underline font-medium mt-1 inline-block"
+                    >
+                      Download PDF
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Admin Interface */}
+        {mode === 'admin' && (
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            {/* Sidebar */}
+            <div className="lg:col-span-1">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h2 className="text-lg font-semibold text-slate-900 mb-6 flex items-center gap-2">
+                  <FileText size={18} className="text-slate-700" />
+                  Tools
+                </h2>
+                
+                {!currentDocument ? (
+                  <div className="text-center">
+                    <input
+                      type="file"
+                      accept=".pdf"
+                      onChange={handleFileUpload}
+                      ref={fileInputRef}
+                      className="hidden"
+                    />
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={loading}
+                      className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 active:bg-slate-950 transition-all disabled:bg-slate-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg font-semibold text-sm"
+                    >
+                      <Upload size={18} />
+                      Upload PDF
+                    </button>
+                    <p className="text-xs text-gray-500 mt-3">
+                      Upload a PDF to start creating your document workflow
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                      <FileText size={16} className="text-slate-600" />
+                      <span className="truncate font-medium text-slate-900 text-sm">{currentDocument.name}</span>
+                    </div>
+                    
+                    <div>
+                      <h3 className="font-semibold text-slate-900 mb-3 text-sm">Add Fields</h3>
+                      <div className="space-y-1.5">
+                        {[
+                          { type: 'signature' as const, label: 'Signature', bg: 'bg-slate-100', hover: 'hover:bg-slate-200', border: 'border-slate-300', text: 'text-slate-700' },
+                          { type: 'name' as const, label: 'Full Name', bg: 'bg-slate-100', hover: 'hover:bg-slate-200', border: 'border-slate-300', text: 'text-slate-700' },
+                          { type: 'company' as const, label: 'Company', bg: 'bg-slate-100', hover: 'hover:bg-slate-200', border: 'border-slate-300', text: 'text-slate-700' },
+                          { type: 'date' as const, label: 'Date', bg: 'bg-slate-100', hover: 'hover:bg-slate-200', border: 'border-slate-300', text: 'text-slate-700' },
+                          { type: 'text' as const, label: 'Text Field', bg: 'bg-slate-100', hover: 'hover:bg-slate-200', border: 'border-slate-300', text: 'text-slate-700' }
+                        ].map(({ type, label, bg, hover, border, text }) => (
+                          <button
+                            key={type}
+                            onClick={() => startPlacingField(type)}
+                            disabled={placingField}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-left rounded-lg transition-colors border text-sm font-medium ${
+                              selectedFieldType === type
+                                ? `${bg} ${text} ${border} border-2`
+                                : `${text} ${hover} ${placingField ? 'opacity-50 cursor-not-allowed' : ''} border border-slate-200`
+                            }`}
+                          >
+                            {getFieldIcon(type)}
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {placingField && (
+                      <div className="p-3 bg-slate-100 text-slate-700 rounded-lg text-xs font-medium border border-slate-200">
+                        Click on the document to place the {selectedFieldType} field
+                      </div>
+                    )}
+                    
+                    {selectedField && (
+                      <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                        <h4 className="font-semibold text-slate-900 mb-2 text-sm">Field Properties</h4>
+                        <div className="space-y-1.5 text-xs text-slate-600">
+                          <div><span className="font-medium">Type:</span> {selectedField.type}</div>
+                          <div><span className="font-medium">Size:</span> {Math.round(selectedField.width)}×{Math.round(selectedField.height)}px</div>
+                          <div><span className="font-medium">Page:</span> {selectedField.page}</div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Field Settings */}
+                    <div className="pt-6 border-t border-slate-200">
+                      <h3 className="font-semibold text-slate-900 mb-4 flex items-center gap-2 text-sm">
+                        <Type size={16} className="text-slate-700" />
+                        Settings
+                      </h3>
+                      <div className="space-y-4">
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Font Size</label>
+                          <input
+                            type="range"
+                            min="8"
+                            max="24"
+                            value={fieldSettings.fontSize}
+                            onChange={(e) => setFieldSettings({
+                              ...fieldSettings,
+                              fontSize: parseInt(e.target.value)
+                            })}
+                            className="w-full accent-purple-600"
+                          />
+                          <div className="text-sm text-gray-600 mt-1">{fieldSettings.fontSize}px</div>
+                        </div>
+                        
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Signature Size</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              type="number"
+                              placeholder="Width"
+                              value={fieldSettings.signatureSize.width}
+                              onChange={(e) => setFieldSettings({
+                                ...fieldSettings,
+                                signatureSize: {
+                                  ...fieldSettings.signatureSize,
+                                  width: parseInt(e.target.value) || 200
+                                }
+                              })}
+                              className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            />
+                            <input
+                              type="number"
+                              placeholder="Height"
+                              value={fieldSettings.signatureSize.height}
+                              onChange={(e) => setFieldSettings({
+                                ...fieldSettings,
+                                signatureSize: {
+                                  ...fieldSettings.signatureSize,
+                                  height: parseInt(e.target.value) || 60
+                                }
+                              })}
+                              className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Text Field Size</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              type="number"
+                              placeholder="Width"
+                              value={fieldSettings.textSize.width}
+                              onChange={(e) => setFieldSettings({
+                                ...fieldSettings,
+                                textSize: {
+                                  ...fieldSettings.textSize,
+                                  width: parseInt(e.target.value) || 200
+                                }
+                              })}
+                              className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            />
+                            <input
+                              type="number"
+                              placeholder="Height"
+                              value={fieldSettings.textSize.height}
+                              onChange={(e) => setFieldSettings({
+                                ...fieldSettings,
+                                textSize: {
+                                  ...fieldSettings.textSize,
+                                  height: parseInt(e.target.value) || 40
+                                }
+                              })}
+                              className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {currentDocument.fields.length > 0 && (
+                      <div className="pt-4 border-t">
+                        <button
+                          onClick={generateClientLink}
+                          disabled={loading}
+                          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400"
+                        >
+                          <Link size={16} />
+                          Generate Client Link
+                        </button>
+                        
+                        {!supabase && (
+                          <div className="mt-2 p-2 bg-yellow-50 text-yellow-700 rounded text-xs">
+                            Working in local mode - links won't persist without Supabase
+                          </div>
+                        )}
+                        
+                        {currentDocument.clientLink && (
+                          <div className="mt-3 p-3 bg-green-50 rounded-lg">
+                            <div className="text-xs text-green-700 mb-1">Client Link (Copied!)</div>
+                            <div className="text-xs text-green-600 break-all">
+                              {currentDocument.clientLink}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Document Viewer */}
+            <div className="lg:col-span-3">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                {currentDocument && pdfDoc ? (
+                  <>
+                    {/* Navigation */}
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-center gap-4 mb-4">
+                        <button
+                          onClick={prevPage}
+                          disabled={currentPage === 1}
+                          className="flex items-center gap-2 px-3 py-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors border border-slate-300 text-sm font-medium"
+                        >
+                          <ChevronLeft size={16} />
+                          Previous
+                        </button>
+                        <span className="text-sm font-semibold text-slate-700 bg-slate-50 px-4 py-2 rounded-lg border border-slate-200">
+                          Page {currentPage} of {totalPages}
+                        </span>
+                        <button
+                          onClick={nextPage}
+                          disabled={currentPage === totalPages}
+                          className="flex items-center gap-2 px-3 py-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors border border-slate-300 text-sm font-medium"
+                        >
+                          Next
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* PDF Canvas */}
+                    <div className="relative border border-slate-300 rounded-lg overflow-hidden bg-slate-100 flex justify-center shadow-inner">
+                      <div className="relative">
+                        <canvas
+                          ref={canvasRef}
+                          className={`max-w-full ${placingField ? 'cursor-crosshair' : 'cursor-default'}`}
+                          onClick={handleCanvasClick}
+                        />
+                        
+                        {/* Field Overlays */}
+                        {currentPageFields.map((field) => (
+                          <div
+                            key={field.id}
+                            className={`absolute border ${
+                              selectedField?.id === field.id 
+                                ? 'border-2 border-slate-700 bg-slate-100' 
+                                : 'border-dashed border-slate-400 hover:border-slate-600'
+                            } bg-slate-50/90 rounded flex items-center justify-center group cursor-move transition-all`}
+                            style={{
+                              left: field.x,
+                              top: field.y,
+                              width: field.width,
+                              height: field.height,
+                            }}
+                            onMouseDown={(e) => handleFieldMouseDown(e, field)}
+                          >
+                            <div className="text-center pointer-events-none px-2">
+                              <div className="text-xs font-semibold text-slate-700">{field.label}</div>
+                              <div className="text-xs text-slate-500">{field.required ? 'Required' : 'Optional'}</div>
+                            </div>
+                            
+                            {/* Resize handle */}
+                            <div
+                              className="absolute bottom-0 right-0 w-3 h-3 bg-slate-700 cursor-se-resize opacity-0 group-hover:opacity-100 transition-opacity rounded-tl-lg"
+                              onMouseDown={(e) => {
+                                e.stopPropagation();
+                                setResizing(true);
+                                setSelectedField(field);
+                              }}
+                            />
+                            
+                            {/* Delete button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeField(field.id);
+                              }}
+                              className="absolute -top-2 -right-2 w-5 h-5 bg-red-600 hover:bg-red-700 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center shadow-md"
+                            >
+                              <X size={10} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center h-96 text-slate-500">
+                    <div className="text-center">
+                      <FileText size={64} className="mx-auto mb-4 text-slate-300" />
+                      <p className="text-slate-600 font-medium">Upload a PDF document to get started</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Client Interface */}
+        {mode === 'client' && currentDocument && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            {/* Document Info */}
+            <div className="bg-slate-50 p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-semibold text-slate-900 mb-1">{currentDocument.name}</h2>
+                  <p className="text-slate-600 text-sm font-medium">Complete all required fields and sign where indicated</p>
+                </div>
+                
+                <div className="flex items-center gap-4">
+                  {allRequiredFieldsCompleted && currentDocument?.status !== 'completed' && (
+                    <button 
+                      onClick={downloadSignedDocument}
+                      disabled={loading}
+                      className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-lg hover:bg-slate-800 active:bg-slate-950 transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg font-semibold text-sm"
+                    >
+                      <Send size={18} />
+                      Submit Document
+                    </button>
+                  )}
+                  
+                  {currentDocument?.status === 'completed' && (
+                    <div className="flex items-center gap-2 px-6 py-3 bg-emerald-50 text-emerald-800 rounded-lg border border-emerald-200 font-semibold text-sm">
+                      <Check size={18} />
+                      Completed
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6">
+              {/* Progress */}
+              <div className="mb-6">
+                <div className="flex justify-between text-xs text-slate-600 mb-2 font-medium">
+                  <span>Completion Progress</span>
+                  <span>
+                    {currentDocument.fields.filter(f => f.value || f.signatureData).length} of {currentDocument.fields.length} fields
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200 rounded-full h-2">
+                  <div 
+                    className="bg-slate-900 h-2 rounded-full transition-all duration-500"
+                    style={{
+                      width: `${(currentDocument.fields.filter(f => f.value || f.signatureData).length / currentDocument.fields.length) * 100}%`
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Navigation */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-4 mb-6">
+                  <button
+                    onClick={prevPage}
+                    disabled={currentPage === 1}
+                    className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors border border-slate-300 text-sm font-medium"
+                  >
+                    <ChevronLeft size={16} />
+                    Previous
+                  </button>
+                  <span className="text-sm font-semibold text-slate-700 bg-slate-50 px-4 py-2 rounded-lg border border-slate-200">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    onClick={nextPage}
+                    disabled={currentPage === totalPages}
+                    className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors border border-slate-300 text-sm font-medium"
+                  >
+                    Next
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              )}
+
+              {/* PDF Canvas */}
+              <div className="relative border border-slate-300 rounded-lg overflow-hidden bg-slate-100 flex justify-center shadow-inner">
+                <div className="relative">
+                  <canvas ref={canvasRef} className="max-w-full" />
+                  
+                  {/* Interactive Fields */}
+                  {currentPageFields.map((field) => (
+                    <div
+                      key={field.id}
+                      className={`absolute rounded-lg flex items-center justify-center cursor-pointer transition-all border ${
+                        field.value || field.signatureData
+                          ? 'bg-emerald-50 border-emerald-500 shadow-md'
+                          : 'bg-slate-100 border-slate-400 hover:bg-slate-200 hover:border-slate-600 shadow-sm hover:shadow-md'
+                      }`}
+                      style={{
+                        left: field.x,
+                        top: field.y,
+                        width: field.width,
+                        height: field.height,
+                      }}
+                      onClick={() => handleFieldInteraction(field)}
+                    >
+                      {field.signatureData ? (
+                        <img
+                          src={field.signatureData}
+                          alt="Signature"
+                          className="max-w-full max-h-full object-contain"
+                        />
+                      ) : field.value ? (
+                        <span className="text-sm font-medium text-slate-900 px-2 truncate">
+                          {field.value}
+                        </span>
+                      ) : (
+                        <div className="text-center px-2">
+                          <div className="text-sm font-medium text-slate-700 mb-1">
+                            {getFieldIcon(field.type)}
+                          </div>
+                          <div className="text-xs text-slate-600 font-medium">
+                            Click to {field.type === 'signature' ? 'sign' : 'fill'}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              {/* Powered by */}
+              <div className="text-center mt-6 pt-4 border-t border-slate-200">
+                <p className="text-xs text-slate-500 font-medium">
+                  Powered by <span className="font-semibold text-slate-700">Amplifirm</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Back to Admin Button (Client Mode) - Only show in preview mode */}
+        {mode === 'client' && !window.location.search.includes('mode=client') && (
+          <div className="text-center mt-6">
+            <button
+              onClick={() => setMode('admin')}
+              className="text-blue-600 hover:text-blue-800 transition-colors"
+            >
+              ← Back to Admin View
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Modals */}
+      <SignatureModal
+        isOpen={showSignatureModal}
+        onClose={() => setShowSignatureModal(false)}
+        onSave={saveFieldValue}
+      />
+      
+      <TextInputModal
+        isOpen={showTextModal}
+        field={activeField}
+        onClose={() => setShowTextModal(false)}
+        onSave={saveFieldValue}
+      />
     </div>
   );
 }
