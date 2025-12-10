@@ -343,8 +343,16 @@ const SignatureModal: React.FC<SignatureModalProps> = ({ isOpen, onClose, onSave
             
             <div className="flex justify-between">
               <button
-                onClick={clearCanvas}
-                className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                onClick={(e) => {
+                  e.preventDefault();
+                  clearCanvas();
+                }}
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  clearCanvas();
+                }}
+                className="flex items-center gap-2 px-4 py-2.5 text-gray-600 hover:text-gray-800 active:bg-gray-200 transition-colors touch-manipulation"
+                style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
               >
                 <RotateCcw size={16} />
                 Clear
@@ -352,15 +360,31 @@ const SignatureModal: React.FC<SignatureModalProps> = ({ isOpen, onClose, onSave
               
               <div className="flex gap-3">
                 <button
-                  onClick={onClose}
-                  className="px-6 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onClose();
+                  }}
+                  onTouchEnd={(e) => {
+                    e.preventDefault();
+                    onClose();
+                  }}
+                  className="px-6 py-2.5 text-gray-600 hover:text-gray-800 active:bg-gray-200 transition-colors touch-manipulation"
+                  style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={saveSignature}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    saveSignature();
+                  }}
+                  onTouchEnd={(e) => {
+                    e.preventDefault();
+                    saveSignature();
+                  }}
                   disabled={!hasDrawn}
-                  className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+                  className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:bg-blue-800 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors touch-manipulation"
+                  style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                 >
                   <Check size={16} />
                   Save Signature
@@ -416,9 +440,17 @@ const SignatureModal: React.FC<SignatureModalProps> = ({ isOpen, onClose, onSave
                 Cancel
               </button>
               <button
-                onClick={saveSignature}
+                onClick={(e) => {
+                  e.preventDefault();
+                  saveSignature();
+                }}
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  saveSignature();
+                }}
                 disabled={!text.trim()}
-                className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+                className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:bg-blue-800 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors touch-manipulation"
+                style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
               >
                 <Check size={16} />
                 Create Signature

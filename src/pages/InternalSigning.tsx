@@ -769,29 +769,53 @@ export default function InternalSigning() {
               </div>
               
               <div className="flex justify-between">
-                <button
-                  onClick={clearCanvas}
-                  className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
-                >
-                  <RotateCcw size={16} />
-                  Clear
-                </button>
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      clearCanvas();
+                    }}
+                    onTouchEnd={(e) => {
+                      e.preventDefault();
+                      clearCanvas();
+                    }}
+                    className="flex items-center gap-2 px-4 py-2.5 text-gray-600 hover:text-gray-800 active:bg-gray-200 transition-colors touch-manipulation"
+                    style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
+                  >
+                    <RotateCcw size={16} />
+                    Clear
+                  </button>
                 
                 <div className="flex gap-3">
                   <button
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.preventDefault();
                       setShowSignatureModal(false);
                       setEditingFieldId(null);
                       clearCanvas();
                     }}
-                    className="px-6 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                    onTouchEnd={(e) => {
+                      e.preventDefault();
+                      setShowSignatureModal(false);
+                      setEditingFieldId(null);
+                      clearCanvas();
+                    }}
+                    className="px-6 py-2.5 text-gray-600 hover:text-gray-800 active:bg-gray-200 transition-colors touch-manipulation"
+                    style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                   >
                     Cancel
                   </button>
                   <button
-                    onClick={saveSignature}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      saveSignature();
+                    }}
+                    onTouchEnd={(e) => {
+                      e.preventDefault();
+                      saveSignature();
+                    }}
                     disabled={!hasDrawn}
-                    className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+                    className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:bg-blue-800 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors touch-manipulation"
+                    style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                   >
                     <Check size={16} />
                     Use Signature
@@ -841,19 +865,35 @@ export default function InternalSigning() {
               
               <div className="flex gap-3 justify-end mt-6">
                 <button
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.preventDefault();
                     setShowSignatureModal(false);
                     setEditingFieldId(null);
                     setText('');
                   }}
-                  className="px-6 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                  onTouchEnd={(e) => {
+                    e.preventDefault();
+                    setShowSignatureModal(false);
+                    setEditingFieldId(null);
+                    setText('');
+                  }}
+                  className="px-6 py-2.5 text-gray-600 hover:text-gray-800 active:bg-gray-200 transition-colors touch-manipulation"
+                  style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={saveSignature}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    saveSignature();
+                  }}
+                  onTouchEnd={(e) => {
+                    e.preventDefault();
+                    saveSignature();
+                  }}
                   disabled={!text.trim()}
-                  className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+                  className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:bg-blue-800 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors touch-manipulation"
+                  style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                 >
                   <Check size={16} />
                   Create Signature
