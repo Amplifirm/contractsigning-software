@@ -298,19 +298,35 @@ const SignatureModal: React.FC<SignatureModalProps> = ({ isOpen, onClose, onSave
         
         <div className="flex gap-4 mb-6">
           <button
-            onClick={() => setMode('draw')}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              mode === 'draw' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            onClick={(e) => {
+              e.preventDefault();
+              setMode('draw');
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              setMode('draw');
+            }}
+            className={`px-4 py-2.5 rounded-lg transition-colors touch-manipulation ${
+              mode === 'draw' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200 active:bg-gray-300'
             }`}
+            style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
           >
             <Pen size={16} className="inline mr-2" />
             Draw
           </button>
           <button
-            onClick={() => setMode('type')}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              mode === 'type' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            onClick={(e) => {
+              e.preventDefault();
+              setMode('type');
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              setMode('type');
+            }}
+            className={`px-4 py-2.5 rounded-lg transition-colors touch-manipulation ${
+              mode === 'type' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200 active:bg-gray-300'
             }`}
+            style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
           >
             <Type size={16} className="inline mr-2" />
             Type
@@ -493,10 +509,21 @@ const TextInputModal: React.FC<TextInputModalProps> = ({ isOpen, field, onClose,
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-6 w-96 shadow-2xl">
+      <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4 shadow-2xl">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-xl font-semibold text-gray-800">{field.label}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button 
+            onClick={(e) => {
+              e.preventDefault();
+              onClose();
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              onClose();
+            }}
+            className="text-gray-400 hover:text-gray-600 active:bg-gray-100 rounded p-1 touch-manipulation"
+            style={{ minHeight: '44px', minWidth: '44px', WebkitTapHighlightColor: 'transparent' }}
+          >
             <X size={24} />
           </button>
         </div>
@@ -507,7 +534,8 @@ const TextInputModal: React.FC<TextInputModalProps> = ({ isOpen, field, onClose,
               type="date"
               value={value}
               onChange={(e) => setValue(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+              style={{ minHeight: '44px' }}
             />
           ) : (
             <input
@@ -515,22 +543,40 @@ const TextInputModal: React.FC<TextInputModalProps> = ({ isOpen, field, onClose,
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder={getPlaceholder()}
-              className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+              style={{ minHeight: '44px' }}
+              autoFocus
             />
           )}
         </div>
         
         <div className="flex gap-3 justify-end">
           <button
-            onClick={onClose}
-            className="px-6 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+            onClick={(e) => {
+              e.preventDefault();
+              onClose();
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              onClose();
+            }}
+            className="px-6 py-2.5 text-gray-600 hover:text-gray-800 active:bg-gray-200 transition-colors touch-manipulation"
+            style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
           >
             Cancel
           </button>
           <button
-            onClick={handleSave}
+            onClick={(e) => {
+              e.preventDefault();
+              handleSave();
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              handleSave();
+            }}
             disabled={!value.trim()}
-            className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+            className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:bg-blue-800 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors touch-manipulation"
+            style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
           >
             <Check size={16} />
             Save
@@ -1366,7 +1412,8 @@ export default function AmplifirmDocumentPlatform() {
             
             <button
               type="submit"
-              className="w-full bg-slate-900 text-white py-3.5 rounded-lg hover:bg-slate-800 active:bg-slate-950 transition-all font-semibold shadow-md hover:shadow-lg"
+              className="w-full bg-slate-900 text-white py-3.5 rounded-lg hover:bg-slate-800 active:bg-slate-950 transition-all font-semibold shadow-md hover:shadow-lg touch-manipulation"
+              style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
             >
               Sign In
             </button>
@@ -1425,22 +1472,46 @@ export default function AmplifirmDocumentPlatform() {
               {mode === 'admin' && (
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => navigate('/internal-signing')}
-                    className="flex items-center gap-2 px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg transition-colors border border-slate-300 text-sm font-medium"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigate('/internal-signing');
+                    }}
+                    onTouchEnd={(e) => {
+                      e.preventDefault();
+                      navigate('/internal-signing');
+                    }}
+                    className="flex items-center gap-2 px-4 py-2.5 text-slate-700 hover:bg-slate-100 active:bg-slate-200 rounded-lg transition-colors border border-slate-300 text-sm font-medium touch-manipulation"
+                    style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                   >
                     <Building size={16} />
                     Internal Prep
                   </button>
                   <button
-                    onClick={() => setMode('client')}
-                    className="flex items-center gap-2 px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg transition-colors border border-slate-300 text-sm font-medium"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setMode('client');
+                    }}
+                    onTouchEnd={(e) => {
+                      e.preventDefault();
+                      setMode('client');
+                    }}
+                    className="flex items-center gap-2 px-4 py-2.5 text-slate-700 hover:bg-slate-100 active:bg-slate-200 rounded-lg transition-colors border border-slate-300 text-sm font-medium touch-manipulation"
+                    style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                   >
                     <Eye size={16} />
                     Preview
                   </button>
                   <button
-                    onClick={handleLogout}
-                    className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors text-sm font-medium"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleLogout();
+                    }}
+                    onTouchEnd={(e) => {
+                      e.preventDefault();
+                      handleLogout();
+                    }}
+                    className="flex items-center gap-2 px-4 py-2.5 text-slate-600 hover:bg-slate-100 active:bg-slate-200 rounded-lg transition-colors text-sm font-medium touch-manipulation"
+                    style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                   >
                     <X size={16} />
                     Logout
@@ -1496,9 +1567,17 @@ export default function AmplifirmDocumentPlatform() {
                       className="hidden"
                     />
                     <button
-                      onClick={() => fileInputRef.current?.click()}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        fileInputRef.current?.click();
+                      }}
+                      onTouchEnd={(e) => {
+                        e.preventDefault();
+                        fileInputRef.current?.click();
+                      }}
                       disabled={loading}
-                      className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 active:bg-slate-950 transition-all disabled:bg-slate-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg font-semibold text-sm"
+                      className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 active:bg-slate-950 transition-all disabled:bg-slate-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg font-semibold text-sm touch-manipulation"
+                      style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                     >
                       <Upload size={18} />
                       Upload PDF
@@ -1526,13 +1605,21 @@ export default function AmplifirmDocumentPlatform() {
                         ].map(({ type, label, bg, hover, border, text }) => (
                           <button
                             key={type}
-                            onClick={() => startPlacingField(type)}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              startPlacingField(type);
+                            }}
+                            onTouchEnd={(e) => {
+                              e.preventDefault();
+                              startPlacingField(type);
+                            }}
                             disabled={placingField}
-                            className={`w-full flex items-center gap-2 px-3 py-2 text-left rounded-lg transition-colors border text-sm font-medium ${
+                            className={`w-full flex items-center gap-2 px-3 py-2.5 text-left rounded-lg transition-colors border text-sm font-medium touch-manipulation ${
                               selectedFieldType === type
                                 ? `${bg} ${text} ${border} border-2`
                                 : `${text} ${hover} ${placingField ? 'opacity-50 cursor-not-allowed' : ''} border border-slate-200`
                             }`}
+                            style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                           >
                             {getFieldIcon(type)}
                             {label}
@@ -1650,9 +1737,17 @@ export default function AmplifirmDocumentPlatform() {
                     {currentDocument.fields.length > 0 && (
                       <div className="pt-4 border-t">
                         <button
-                          onClick={generateClientLink}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            generateClientLink();
+                          }}
+                          onTouchEnd={(e) => {
+                            e.preventDefault();
+                            generateClientLink();
+                          }}
                           disabled={loading}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400"
+                          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 active:bg-green-800 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed touch-manipulation"
+                          style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                         >
                           <Link size={16} />
                           Generate Client Link
@@ -1814,9 +1909,17 @@ export default function AmplifirmDocumentPlatform() {
                 <div className="flex items-center gap-4">
                   {allRequiredFieldsCompleted && currentDocument?.status !== 'completed' && (
                     <button 
-                      onClick={downloadSignedDocument}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        downloadSignedDocument();
+                      }}
+                      onTouchEnd={(e) => {
+                        e.preventDefault();
+                        downloadSignedDocument();
+                      }}
                       disabled={loading}
-                      className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-lg hover:bg-slate-800 active:bg-slate-950 transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg font-semibold text-sm"
+                      className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-lg hover:bg-slate-800 active:bg-slate-950 transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg font-semibold text-sm touch-manipulation"
+                      style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                     >
                       <Send size={18} />
                       Submit Document
@@ -1958,8 +2061,16 @@ export default function AmplifirmDocumentPlatform() {
         {mode === 'client' && !window.location.search.includes('mode=client') && (
           <div className="text-center mt-6">
             <button
-              onClick={() => setMode('admin')}
-              className="text-blue-600 hover:text-blue-800 transition-colors"
+              onClick={(e) => {
+                e.preventDefault();
+                setMode('admin');
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                setMode('admin');
+              }}
+              className="text-blue-600 hover:text-blue-800 active:text-blue-900 transition-colors touch-manipulation px-4 py-2"
+              style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
             >
               ← Back to Admin View
             </button>

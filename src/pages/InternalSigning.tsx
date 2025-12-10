@@ -356,6 +356,10 @@ export default function InternalSigning() {
     setResizing(false);
   };
 
+  // Text input modal state
+  const [showTextModal, setShowTextModal] = useState(false);
+  const [editingTextFieldId, setEditingTextFieldId] = useState<string | null>(null);
+
   const handleFieldInteraction = (field: CompanyField) => {
     console.log('Field clicked:', field);
     
@@ -363,11 +367,9 @@ export default function InternalSigning() {
       setEditingFieldId(field.id);
       setShowSignatureModal(true);
     } else {
-      // Handle text fields with prompt
-      const value = prompt(`Enter ${field.label}:`, field.value || '');
-      if (value !== null) {
-        updateFieldValue(field.id, value);
-      }
+      // Use modal for text fields instead of prompt (better for mobile)
+      setEditingTextFieldId(field.id);
+      setShowTextModal(true);
     }
   };
 
@@ -420,6 +422,125 @@ export default function InternalSigning() {
       ...currentDocument,
       fields: updatedFields
     });
+    
+    // Close modal after saving
+    setShowTextModal(false);
+    setEditingTextFieldId(null);
+  };
+
+  // Text Input Modal Component
+  const TextInputModal = () => {
+    const [value, setValue] = useState('');
+    const field = currentDocument?.fields.find(f => f.id === editingTextFieldId);
+
+    useEffect(() => {
+      if (field?.value) {
+        setValue(field.value);
+      } else {
+        setValue('');
+      }
+    }, [field]);
+
+    const handleSave = () => {
+      if (editingTextFieldId && value.trim()) {
+        updateFieldValue(editingTextFieldId, value.trim());
+      }
+    };
+
+    if (!showTextModal || !field) return null;
+
+    const getPlaceholder = () => {
+      switch (field.type) {
+        case 'name': return 'Enter name';
+        case 'company': return 'Enter company name';
+        case 'date': return 'MM/DD/YYYY';
+        case 'text': return 'Enter text';
+        default: return 'Enter value';
+      }
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-2xl">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-xl font-semibold text-gray-800">{field.label}</h3>
+            <button 
+              onClick={(e) => {
+                e.preventDefault();
+                setShowTextModal(false);
+                setEditingTextFieldId(null);
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                setShowTextModal(false);
+                setEditingTextFieldId(null);
+              }}
+              className="text-gray-400 hover:text-gray-600 active:bg-gray-100 rounded p-1 touch-manipulation"
+              style={{ minHeight: '44px', minWidth: '44px', WebkitTapHighlightColor: 'transparent' }}
+            >
+              <X size={24} />
+            </button>
+          </div>
+          
+          <div className="mb-6">
+            {field.type === 'date' ? (
+              <input
+                type="date"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+                style={{ minHeight: '44px' }}
+              />
+            ) : (
+              <input
+                type="text"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                placeholder={getPlaceholder()}
+                className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+                style={{ minHeight: '44px' }}
+                autoFocus
+              />
+            )}
+          </div>
+          
+          <div className="flex gap-3 justify-end">
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                setShowTextModal(false);
+                setEditingTextFieldId(null);
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                setShowTextModal(false);
+                setEditingTextFieldId(null);
+              }}
+              className="px-6 py-2.5 text-gray-600 hover:text-gray-800 active:bg-gray-200 transition-colors touch-manipulation"
+              style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                handleSave();
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                handleSave();
+              }}
+              disabled={!value.trim()}
+              className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:bg-blue-800 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors touch-manipulation"
+              style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
+            >
+              <Check size={16} />
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const removeField = (fieldId: string) => {
@@ -711,13 +832,22 @@ export default function InternalSigning() {
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-xl font-semibold text-gray-800">Create Signature</h3>
             <button 
-              onClick={() => {
+              onClick={(e) => {
+                e.preventDefault();
                 setShowSignatureModal(false);
                 setEditingFieldId(null);
                 setText('');
                 clearCanvas();
               }}
-              className="text-gray-400 hover:text-gray-600"
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                setShowSignatureModal(false);
+                setEditingFieldId(null);
+                setText('');
+                clearCanvas();
+              }}
+              className="text-gray-400 hover:text-gray-600 active:bg-gray-100 rounded p-1 touch-manipulation"
+              style={{ minHeight: '44px', minWidth: '44px', WebkitTapHighlightColor: 'transparent' }}
             >
               <X size={24} />
             </button>
@@ -725,19 +855,35 @@ export default function InternalSigning() {
           
           <div className="flex gap-4 mb-6">
             <button
-              onClick={() => setMode('draw')}
-              className={`px-4 py-2 rounded-lg transition-colors ${
-                mode === 'draw' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              onClick={(e) => {
+                e.preventDefault();
+                setMode('draw');
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                setMode('draw');
+              }}
+              className={`px-4 py-2.5 rounded-lg transition-colors touch-manipulation ${
+                mode === 'draw' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200 active:bg-gray-300'
               }`}
+              style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
             >
               <Pen size={16} className="inline mr-2" />
               Draw
             </button>
             <button
-              onClick={() => setMode('type')}
-              className={`px-4 py-2 rounded-lg transition-colors ${
-                mode === 'type' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              onClick={(e) => {
+                e.preventDefault();
+                setMode('type');
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                setMode('type');
+              }}
+              className={`px-4 py-2.5 rounded-lg transition-colors touch-manipulation ${
+                mode === 'type' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200 active:bg-gray-300'
               }`}
+              style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
             >
               <Type size={16} className="inline mr-2" />
               Type
@@ -930,8 +1076,16 @@ export default function InternalSigning() {
             <div>
               <div className="flex items-center gap-4 mb-2">
                 <button
-                  onClick={() => navigate('/')}
-                  className="flex items-center gap-2 px-3 py-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors border border-slate-300 text-sm font-medium"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigate('/');
+                  }}
+                  onTouchEnd={(e) => {
+                    e.preventDefault();
+                    navigate('/');
+                  }}
+                  className="flex items-center gap-2 px-3 py-2.5 text-slate-600 hover:text-slate-900 active:bg-slate-200 hover:bg-slate-100 rounded-lg transition-colors border border-slate-300 text-sm font-medium touch-manipulation"
+                  style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                 >
                   <ArrowLeft size={16} />
                   Back
@@ -947,9 +1101,17 @@ export default function InternalSigning() {
             <div className="flex items-center gap-4">
               {currentDocument && currentDocument.fields.length > 0 && (
                 <button
-                  onClick={downloadSignedDocument}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    downloadSignedDocument();
+                  }}
+                  onTouchEnd={(e) => {
+                    e.preventDefault();
+                    downloadSignedDocument();
+                  }}
                   disabled={loading}
-                  className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-lg hover:bg-slate-800 active:bg-slate-950 transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg font-semibold text-sm"
+                  className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-lg hover:bg-slate-800 active:bg-slate-950 transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg font-semibold text-sm touch-manipulation"
+                  style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                 >
                   <Download size={18} />
                   Download PDF
@@ -979,9 +1141,17 @@ export default function InternalSigning() {
                     className="hidden"
                   />
                   <button
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      fileInputRef.current?.click();
+                    }}
+                    onTouchEnd={(e) => {
+                      e.preventDefault();
+                      fileInputRef.current?.click();
+                    }}
                     disabled={loading}
-                    className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 active:bg-slate-950 transition-all disabled:bg-slate-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg font-semibold text-sm"
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 active:bg-slate-950 transition-all disabled:bg-slate-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg font-semibold text-sm touch-manipulation"
+                    style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                   >
                     <Upload size={18} />
                     Upload PDF
@@ -1012,13 +1182,21 @@ export default function InternalSigning() {
                   ].map(({ type, label }) => (
                     <button
                       key={type}
-                      onClick={() => startPlacingField(type)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        startPlacingField(type);
+                      }}
+                      onTouchEnd={(e) => {
+                        e.preventDefault();
+                        startPlacingField(type);
+                      }}
                       disabled={placingField}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-left rounded-lg transition-colors border text-sm font-medium ${
+                      className={`w-full flex items-center gap-2 px-3 py-2.5 text-left rounded-lg transition-colors border text-sm font-medium touch-manipulation ${
                         selectedFieldType === type
                           ? 'bg-slate-100 text-slate-700 border-slate-300 border-2'
                           : `text-slate-700 hover:bg-slate-200 ${placingField ? 'opacity-50 cursor-not-allowed' : ''} border border-slate-200`
                       }`}
+                      style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                     >
                       {getFieldIcon(type)}
                       {label}
@@ -1194,6 +1372,9 @@ export default function InternalSigning() {
 
       {/* Signature Modal */}
       <SignatureModal />
+      
+      {/* Text Input Modal */}
+      <TextInputModal />
     </div>
   );
 }
