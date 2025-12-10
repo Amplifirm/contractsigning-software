@@ -1022,20 +1022,36 @@ export default function InternalSigning() {
                   {totalPages > 1 && (
                     <div className="flex items-center justify-center gap-4 mb-4">
                       <button
-                        onClick={prevPage}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          prevPage();
+                        }}
+                        onTouchEnd={(e) => {
+                          e.preventDefault();
+                          prevPage();
+                        }}
                         disabled={currentPage === 1}
-                        className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-800 disabled:opacity-50"
+                        className="flex items-center gap-2 px-4 py-2.5 text-slate-600 hover:text-slate-900 active:bg-slate-200 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors border border-slate-300 text-sm font-medium touch-manipulation"
+                        style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                       >
                         <ChevronLeft size={16} />
                         Previous
                       </button>
-                      <span className="text-sm font-medium">
+                      <span className="text-sm font-semibold text-slate-700 bg-slate-50 px-4 py-2 rounded-lg border border-slate-200">
                         Page {currentPage} of {totalPages}
                       </span>
                       <button
-                        onClick={nextPage}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          nextPage();
+                        }}
+                        onTouchEnd={(e) => {
+                          e.preventDefault();
+                          nextPage();
+                        }}
                         disabled={currentPage === totalPages}
-                        className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-800 disabled:opacity-50"
+                        className="flex items-center gap-2 px-4 py-2.5 text-slate-600 hover:text-slate-900 active:bg-slate-200 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors border border-slate-300 text-sm font-medium touch-manipulation"
+                        style={{ minHeight: '44px', WebkitTapHighlightColor: 'transparent' }}
                       >
                         Next
                         <ChevronRight size={16} />
