@@ -210,12 +210,30 @@ export default function InternalSigning() {
     setSelectedField(null);
   };
 
-  const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
+  // Helper to get coordinates from mouse or touch for canvas
+  const getCanvasCoordinates = (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if ('touches' in event && event.touches.length > 0) {
+      return {
+        x: event.touches[0].clientX - rect.left,
+        y: event.touches[0].clientY - rect.top
+      };
+    } else if ('clientX' in event) {
+      return {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top
+      };
+    }
+    return null;
+  };
+
+  const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     if (!placingField || !selectedFieldType || !currentDocument) return;
     
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    const coords = getCanvasCoordinates(event);
+    if (!coords) return;
+    
+    const { x, y } = coords;
     
     const fieldLabels = {
       signature: 'Company Signature',
@@ -253,62 +271,87 @@ export default function InternalSigning() {
     setSelectedFieldType(null);
   };
 
-  const handleFieldMouseDown = (e: React.MouseEvent, field: CompanyField) => {
-    e.stopPropagation();
-    setSelectedField(field);
-    setDragStart({ x: e.clientX - field.x, y: e.clientY - field.y });
-    setDragging(true);
+  // Helper to get pointer coordinates from mouse or touch
+  const getPointerCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
+    if ('touches' in e && e.touches.length > 0) {
+      return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    } else if ('clientX' in e) {
+      return { x: e.clientX, y: e.clientY };
+    }
+    return null;
   };
 
-  const handleResizeMouseDown = (e: React.MouseEvent, field: CompanyField) => {
+  const handleFieldMouseDown = (e: React.MouseEvent | React.TouchEvent, field: CompanyField) => {
     e.stopPropagation();
+    e.preventDefault();
     setSelectedField(field);
-    setResizeStart({ 
-      x: e.clientX, 
-      y: e.clientY, 
-      width: field.width, 
-      height: field.height 
-    });
-    setResizing(true);
+    const coords = getPointerCoordinates(e);
+    if (coords) {
+      setDragStart({ x: coords.x - field.x, y: coords.y - field.y });
+      setDragging(true);
+    }
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (dragging && selectedField && currentDocument) {
-      const newX = e.clientX - dragStart.x;
-      const newY = e.clientY - dragStart.y;
-      
-      const updatedFields = currentDocument.fields.map(field =>
-        field.id === selectedField.id
-          ? { ...field, x: Math.max(0, newX), y: Math.max(0, newY) }
-          : field
-      );
-      
-      setCurrentDocument({
-        ...currentDocument,
-        fields: updatedFields
+  const handleResizeMouseDown = (e: React.MouseEvent | React.TouchEvent, field: CompanyField) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setSelectedField(field);
+    const coords = getPointerCoordinates(e);
+    if (coords) {
+      setResizeStart({ 
+        x: coords.x, 
+        y: coords.y, 
+        width: field.width, 
+        height: field.height 
       });
+      setResizing(true);
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
+    if (dragging && selectedField && currentDocument) {
+      const coords = getPointerCoordinates(e);
+      if (coords) {
+        const newX = coords.x - dragStart.x;
+        const newY = coords.y - dragStart.y;
+        
+        const updatedFields = currentDocument.fields.map(field =>
+          field.id === selectedField.id
+            ? { ...field, x: Math.max(0, newX), y: Math.max(0, newY) }
+            : field
+        );
+        
+        setCurrentDocument({
+          ...currentDocument,
+          fields: updatedFields
+        });
+      }
     }
     
     if (resizing && selectedField && currentDocument) {
-      const deltaX = e.clientX - resizeStart.x;
-      const deltaY = e.clientY - resizeStart.y;
-      const newWidth = Math.max(50, resizeStart.width + deltaX);
-      const newHeight = Math.max(20, resizeStart.height + deltaY);
-      
-      const updatedFields = currentDocument.fields.map(field =>
-        field.id === selectedField.id
-          ? { ...field, width: newWidth, height: newHeight }
-          : field
-      );
-      
-      setCurrentDocument({
-        ...currentDocument,
-        fields: updatedFields
-      });
+      const coords = getPointerCoordinates(e);
+      if (coords) {
+        const deltaX = coords.x - resizeStart.x;
+        const deltaY = coords.y - resizeStart.y;
+        const newWidth = Math.max(50, resizeStart.width + deltaX);
+        const newHeight = Math.max(20, resizeStart.height + deltaY);
+        
+        const updatedFields = currentDocument.fields.map(field =>
+          field.id === selectedField.id
+            ? { ...field, width: newWidth, height: newHeight }
+            : field
+        );
+        
+        setCurrentDocument({
+          ...currentDocument,
+          fields: updatedFields
+        });
+      }
     }
   };
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (e?: React.MouseEvent | React.TouchEvent) => {
+    if (e) e.preventDefault();
     setDragging(false);
     setResizing(false);
   };
@@ -546,30 +589,56 @@ export default function InternalSigning() {
     const [text, setText] = useState('');
     const [selectedFont, setSelectedFont] = useState(cursiveFonts[0]);
 
-    const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // Helper to get coordinates from mouse or touch event
+    const getCoordinates = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return null;
+      
+      const rect = canvas.getBoundingClientRect();
+      if ('touches' in e && e.touches.length > 0) {
+        return {
+          x: e.touches[0].clientX - rect.left,
+          y: e.touches[0].clientY - rect.top
+        };
+      } else if ('clientX' in e) {
+        return {
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top
+        };
+      }
+      return null;
+    };
+
+    const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+      e.preventDefault();
       const canvas = canvasRef.current;
       if (!canvas) return;
       
-      const rect = canvas.getBoundingClientRect();
+      const coords = getCoordinates(e);
+      if (!coords) return;
+      
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       
       setIsDrawing(true);
       ctx.beginPath();
-      ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+      ctx.moveTo(coords.x, coords.y);
     };
 
-    const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+      e.preventDefault();
       if (!isDrawing) return;
       
       const canvas = canvasRef.current;
       if (!canvas) return;
       
-      const rect = canvas.getBoundingClientRect();
+      const coords = getCoordinates(e);
+      if (!coords) return;
+      
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       
-      ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+      ctx.lineTo(coords.x, coords.y);
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 2;
       ctx.lineCap = 'round';
@@ -577,7 +646,8 @@ export default function InternalSigning() {
       setHasDrawn(true);
     };
 
-    const stopDrawing = () => {
+    const stopDrawing = (e?: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+      if (e) e.preventDefault();
       setIsDrawing(false);
     };
 
@@ -682,11 +752,19 @@ export default function InternalSigning() {
                   ref={canvasRef}
                   width={552}
                   height={150}
-                  className="border-2 border-gray-200 rounded-lg cursor-crosshair bg-gray-50 w-full"
+                  className="border-2 border-gray-200 rounded-lg cursor-crosshair bg-gray-50 w-full touch-none"
+                  style={{ 
+                    touchAction: 'none',
+                    minHeight: '150px',
+                    maxWidth: '100%'
+                  }}
                   onMouseDown={startDrawing}
                   onMouseMove={draw}
                   onMouseUp={stopDrawing}
                   onMouseLeave={stopDrawing}
+                  onTouchStart={startDrawing}
+                  onTouchMove={draw}
+                  onTouchEnd={stopDrawing}
                 />
               </div>
               
@@ -791,7 +869,9 @@ export default function InternalSigning() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-slate-100"
          onMouseMove={handleMouseMove}
-         onMouseUp={handleMouseUp}>
+         onMouseUp={handleMouseUp}
+         onTouchMove={handleMouseMove}
+         onTouchEnd={handleMouseUp}>
       <div className="max-w-7xl mx-auto p-6">
         {/* Error Display */}
         {error && (
@@ -970,6 +1050,11 @@ export default function InternalSigning() {
                         ref={canvasRef}
                         className={`max-w-full ${placingField ? 'cursor-crosshair' : 'cursor-default'}`}
                         onClick={handleCanvasClick}
+                        onTouchEnd={(e) => {
+                          e.preventDefault();
+                          handleCanvasClick(e);
+                        }}
+                        style={{ touchAction: placingField ? 'none' : 'auto' }}
                       />
                       
                       {/* Field Overlays - MORE OPAQUE */}
@@ -991,7 +1076,12 @@ export default function InternalSigning() {
                             height: field.height,
                           }}
                           onMouseDown={(e) => handleFieldMouseDown(e, field)}
+                          onTouchStart={(e) => handleFieldMouseDown(e, field)}
                           onClick={() => handleFieldInteraction(field)}
+                          onTouchEnd={(e) => {
+                            e.preventDefault();
+                            handleFieldInteraction(field);
+                          }}
                         >
                           {field.signatureData ? (
                             <img
@@ -1014,6 +1104,7 @@ export default function InternalSigning() {
                           <div
                             className="absolute bottom-0 right-0 w-4 h-4 bg-blue-600 cursor-se-resize opacity-70 group-hover:opacity-100 transition-opacity rounded-tl-lg"
                             onMouseDown={(e) => handleResizeMouseDown(e, field)}
+                            onTouchStart={(e) => handleResizeMouseDown(e, field)}
                             style={{ background: 'linear-gradient(-45deg, transparent 30%, #2563eb 30%)' }}
                           />
                           

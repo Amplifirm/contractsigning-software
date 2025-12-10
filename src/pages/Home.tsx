@@ -176,30 +176,56 @@ const SignatureModal: React.FC<SignatureModalProps> = ({ isOpen, onClose, onSave
   const [text, setText] = useState('');
   const [selectedFont, setSelectedFont] = useState(cursiveFonts[0]);
 
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  // Helper to get coordinates from mouse or touch event
+  const getCoordinates = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    
+    const rect = canvas.getBoundingClientRect();
+    if ('touches' in e && e.touches.length > 0) {
+      return {
+        x: e.touches[0].clientX - rect.left,
+        y: e.touches[0].clientY - rect.top
+      };
+    } else if ('clientX' in e) {
+      return {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      };
+    }
+    return null;
+  };
+
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
     const canvas = canvasRef.current;
     if (!canvas) return;
     
-    const rect = canvas.getBoundingClientRect();
+    const coords = getCoordinates(e);
+    if (!coords) return;
+    
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
     setIsDrawing(true);
     ctx.beginPath();
-    ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+    ctx.moveTo(coords.x, coords.y);
   };
 
-  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
     if (!isDrawing) return;
     
     const canvas = canvasRef.current;
     if (!canvas) return;
     
-    const rect = canvas.getBoundingClientRect();
+    const coords = getCoordinates(e);
+    if (!coords) return;
+    
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+    ctx.lineTo(coords.x, coords.y);
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 2;
     ctx.lineCap = 'round';
@@ -207,7 +233,8 @@ const SignatureModal: React.FC<SignatureModalProps> = ({ isOpen, onClose, onSave
     setHasDrawn(true);
   };
 
-  const stopDrawing = () => {
+  const stopDrawing = (e?: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (e) e.preventDefault();
     setIsDrawing(false);
   };
 
@@ -298,11 +325,19 @@ const SignatureModal: React.FC<SignatureModalProps> = ({ isOpen, onClose, onSave
                 ref={canvasRef}
                 width={552}
                 height={150}
-                className="border-2 border-gray-200 rounded-lg cursor-crosshair bg-gray-50 w-full"
+                className="border-2 border-gray-200 rounded-lg cursor-crosshair bg-gray-50 w-full touch-none"
+                style={{ 
+                  touchAction: 'none',
+                  minHeight: '150px',
+                  maxWidth: '100%'
+                }}
                 onMouseDown={startDrawing}
                 onMouseMove={draw}
                 onMouseUp={stopDrawing}
                 onMouseLeave={stopDrawing}
+                onTouchStart={startDrawing}
+                onTouchMove={draw}
+                onTouchEnd={stopDrawing}
               />
             </div>
             
@@ -997,12 +1032,30 @@ export default function AmplifirmDocumentPlatform() {
     setSelectedField(null);
   };
 
-  const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
+  // Helper to get coordinates from mouse or touch for canvas
+  const getCanvasCoordinates = (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if ('touches' in event && event.touches.length > 0) {
+      return {
+        x: event.touches[0].clientX - rect.left,
+        y: event.touches[0].clientY - rect.top
+      };
+    } else if ('clientX' in event) {
+      return {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top
+      };
+    }
+    return null;
+  };
+
+  const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     if (!placingField || !selectedFieldType || !currentDocument) return;
     
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    const coords = getCanvasCoordinates(event);
+    if (!coords) return;
+    
+    const { x, y } = coords;
     
     const fieldLabels = {
       signature: 'Signature',
@@ -1041,33 +1094,51 @@ export default function AmplifirmDocumentPlatform() {
     setSelectedFieldType(null);
   };
 
-  // Field manipulation
-  const handleFieldMouseDown = (e: React.MouseEvent, field: DocumentField) => {
-    e.stopPropagation();
-    setSelectedField(field);
-    setDragStart({ x: e.clientX - field.x, y: e.clientY - field.y });
-    setDragging(true);
+  // Helper to get pointer coordinates from mouse or touch
+  const getPointerCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
+    if ('touches' in e && e.touches.length > 0) {
+      return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    } else if ('clientX' in e) {
+      return { x: e.clientX, y: e.clientY };
+    }
+    return null;
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (dragging && selectedField && currentDocument) {
-      const newX = e.clientX - dragStart.x;
-      const newY = e.clientY - dragStart.y;
-      
-      const updatedFields = currentDocument.fields.map(field =>
-        field.id === selectedField.id
-          ? { ...field, x: Math.max(0, newX), y: Math.max(0, newY) }
-          : field
-      );
-      
-      setCurrentDocument({
-        ...currentDocument,
-        fields: updatedFields
-      });
+  // Field manipulation
+  const handleFieldMouseDown = (e: React.MouseEvent | React.TouchEvent, field: DocumentField) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setSelectedField(field);
+    const coords = getPointerCoordinates(e);
+    if (coords) {
+      setDragStart({ x: coords.x - field.x, y: coords.y - field.y });
+      setDragging(true);
     }
   };
 
-  const handleMouseUp = () => {
+  const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
+    if (dragging && selectedField && currentDocument) {
+      const coords = getPointerCoordinates(e);
+      if (coords) {
+        const newX = coords.x - dragStart.x;
+        const newY = coords.y - dragStart.y;
+        
+        const updatedFields = currentDocument.fields.map(field =>
+          field.id === selectedField.id
+            ? { ...field, x: Math.max(0, newX), y: Math.max(0, newY) }
+            : field
+        );
+        
+        setCurrentDocument({
+          ...currentDocument,
+          fields: updatedFields
+        });
+      }
+    }
+  };
+
+  const handleMouseUp = (e?: React.MouseEvent | React.TouchEvent) => {
+    if (e) e.preventDefault();
     // Auto-save if fields were moved in admin mode
     if ((dragging || resizing) && currentDocument && selectedField) {
       autoSaveDocument(currentDocument);
@@ -1276,7 +1347,9 @@ export default function AmplifirmDocumentPlatform() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-slate-100"
          onMouseMove={handleMouseMove}
-         onMouseUp={handleMouseUp}>
+         onMouseUp={handleMouseUp}
+         onTouchMove={handleMouseMove}
+         onTouchEnd={handleMouseUp}>
       <div className="max-w-7xl mx-auto p-6">
         {/* Error Display */}
         {error && (
@@ -1290,8 +1363,8 @@ export default function AmplifirmDocumentPlatform() {
         )}
 
         {/* Header */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6 p-6">
-          <div className="flex justify-between items-center">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6 p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
               <h1 className="text-3xl font-semibold text-slate-900 mb-2 tracking-tight">
                 {mode === 'admin' ? 'Document Center' : 'Document Signing'}
@@ -1372,7 +1445,7 @@ export default function AmplifirmDocumentPlatform() {
 
         {/* Admin Interface */}
         {mode === 'admin' && (
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6">
             {/* Sidebar */}
             <div className="lg:col-span-1">
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -1611,6 +1684,11 @@ export default function AmplifirmDocumentPlatform() {
                           ref={canvasRef}
                           className={`max-w-full ${placingField ? 'cursor-crosshair' : 'cursor-default'}`}
                           onClick={handleCanvasClick}
+                          onTouchEnd={(e) => {
+                            e.preventDefault();
+                            handleCanvasClick(e);
+                          }}
+                          style={{ touchAction: placingField ? 'none' : 'auto' }}
                         />
                         
                         {/* Field Overlays */}
@@ -1629,6 +1707,7 @@ export default function AmplifirmDocumentPlatform() {
                               height: field.height,
                             }}
                             onMouseDown={(e) => handleFieldMouseDown(e, field)}
+                            onTouchStart={(e) => handleFieldMouseDown(e, field)}
                           >
                             <div className="text-center pointer-events-none px-2">
                               <div className="text-xs font-semibold text-slate-700">{field.label}</div>
@@ -1771,6 +1850,10 @@ export default function AmplifirmDocumentPlatform() {
                         height: field.height,
                       }}
                       onClick={() => handleFieldInteraction(field)}
+                      onTouchEnd={(e) => {
+                        e.preventDefault();
+                        handleFieldInteraction(field);
+                      }}
                     >
                       {field.signatureData ? (
                         <img
